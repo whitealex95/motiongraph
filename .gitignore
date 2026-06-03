@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+data/g1/*.csv
+data/*.npz
+outputs/
+.DS_Store

@@ -1,0 +1,6 @@
+# Tested with the `deploy_mujoco` conda env on Linux + NVIDIA GPU (MUJOCO_GL=glfw).
+mujoco>=3.3
+numpy>=1.26
+scipy>=1.15
+imageio>=2.37
+imageio-ffmpeg>=0.4
