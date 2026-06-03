@@ -59,7 +59,8 @@ def task2():
             frac = min(1.0, (h * C.DT) / rem)
             p = (1 - frac) * xy + frac * target_xy
             ang = yaw + frac * ((target_yaw - yaw + np.pi) % (2 * np.pi) - np.pi)
-            block += list(_local(p - xy, yaw)) + list(_local([np.cos(ang), np.sin(ang)], yaw))
+            face = np.array([np.cos(ang), np.sin(ang)])
+            block += list(_local(p - xy, yaw)) + list(_local(face, yaw))
         return np.array(block, np.float32)
 
     out = mm.generate(cmd, seconds=T, start_frame=200, traj_fn=traj_fn)
