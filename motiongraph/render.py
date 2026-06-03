@@ -20,7 +20,10 @@ def _add_sphere(scene, pos, size, rgba):
 
 def render_qpos(qpos_seq, out_path, markers_fn=None, fps=C.FPS,
                 width=1280, height=720, cam_dist=3.5, cam_elev=-18, cam_azim=120):
-    """Render frames with a camera tracking the root; markers_fn(t)->[(pos,size,rgba)]."""
+    """Render frames with a camera tracking the root.
+
+    markers_fn(frame_idx) -> list of (world_pos, size, rgba) spheres to overlay.
+    """
     model = mujoco.MjModel.from_xml_path(C.SCENE_XML)
     data = mujoco.MjData(model)
     renderer = mujoco.Renderer(model, height, width)
