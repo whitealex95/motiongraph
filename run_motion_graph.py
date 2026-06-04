@@ -19,7 +19,7 @@ from motiongraph.motion_graph import MotionGraph
 from motiongraph.kinematics import transform_qpos, alignment_to, ease_to_terminal
 from motiongraph.cleanup import cleanup
 
-START = 2500   # a steady walking frame in walk1_subject1
+START = 1500   # a steady walking frame in walk1_subject2
 
 
 def _cmd_marker(out, command):
@@ -34,11 +34,11 @@ def _cmd_marker(out, command):
 def _gentle_schedule():
     d = np.deg2rad
     return SpeedCommand([
-        (0.0, 1.2, d(0)),    # walk +x
-        (3.0, 1.5, d(35)),   # gentle veer left
-        (6.0, 1.8, d(35)),   # jog
-        (9.0, 1.4, d(-15)),  # veer right
-        (12.0, 1.1, d(-15)),
+        (0.0, 1.0, d(0)),    # walk +x
+        (3.0, 1.2, d(35)),   # gentle veer left
+        (6.0, 1.2, d(35)),   # keep walking
+        (9.0, 1.0, d(-15)),  # veer right
+        (12.0, 0.9, d(-15)),
     ])
 
 
@@ -53,8 +53,8 @@ def gen_task1(g=None, clean=True):
 
 def gen_task2(g=None, clean=True):
     g = g or MotionGraph(load_library())
-    cmd = SpeedCommand([(0.0, 1.3, np.deg2rad(15))])   # cruise; planner steers onto target in the tail
-    target_xy = np.array([7.5, 2.0])                   # reachable given the command over 8 s
+    cmd = SpeedCommand([(0.0, 1.0, np.deg2rad(15))])   # cruise; planner steers onto target in the tail
+    target_xy = np.array([5.5, 1.5])                   # reachable at walking speed over 8 s
     target_yaw = np.deg2rad(60)                        # arrive facing a different way (true in-between)
     term_frame = 2600
     out = g.plan_to(cmd, seconds=8.0, start_frame=START,

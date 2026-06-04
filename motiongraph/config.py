@@ -32,12 +32,7 @@ SMOOTH_WINDOW = 9              # Savitzky-Golay window (frames) for root de-jitt
 # T-pose that blends into the motion over ~1.5 s).
 TRIM = 45
 
-# Default clip set for the locomotion library (all walk + run/sprint, walk-heavy).
-LOCO_CLIPS = [
-    "walk1_subject1", "walk1_subject2", "walk1_subject5",
-    "walk2_subject1", "walk2_subject3", "walk2_subject4",
-    "walk3_subject1", "walk3_subject2", "walk3_subject3", "walk3_subject4", "walk3_subject5",
-    "walk4_subject1",
-    "run1_subject2", "run1_subject5", "run2_subject1", "run2_subject4",
-    "sprint1_subject2", "sprint1_subject4",
-]
+# A SINGLE continuous walking sequence -> a unimodal motion distribution (one
+# subject, one gait), so matching/graph never hop between styles or speeds.
+# walk1_subject2 is ~258 s with lots of turning and walk speeds up to ~1.3 m/s.
+LOCO_CLIPS = ["walk1_subject2"]

@@ -41,7 +41,7 @@ def _descriptors(lib):
 
 
 class MotionGraph:
-    def __init__(self, lib, n_neighbors=6, src_stride=4, tgt_stride=2, pca_dim=16,
+    def __init__(self, lib, n_neighbors=16, src_stride=2, tgt_stride=2, pca_dim=16,
                  tau_factor=2.5, min_z=0.6, cache=True):
         self.lib = lib
         self.qpos, self.yaw = lib["qpos"], lib["yaw"]
@@ -125,11 +125,14 @@ class MotionGraph:
         return np.array([c * v[0] - s * v[1], s * v[0] + c * v[1]])
 
     # --- task1: greedy command following --------------------------------
-    def follow_command(self, command, seconds, start_frame=0):
+    def follow_command(self, command, seconds, start_frame=0, return_trace=False):
+        """Greedy command following. With return_trace, also return per-frame
+        (library_frame, took_transition) so the graph traversal can be visualized."""
         n = int(seconds * C.FPS)
         cur = start_frame
         align = (-self.yaw[cur], self.xy[cur].copy(), np.zeros(2))   # start at origin, +x
         out, frozen, blend_left, step = [], None, 0, 0
+        trace_frame, trace_jump = [], []
         while step < n:
             world = transform_qpos(self.qpos[cur], *align)[0]
             cwx, cwy = world[0:2].copy(), self.yaw[cur] + align[0]
@@ -137,6 +140,8 @@ class MotionGraph:
                 world = blend_qpos(frozen, world, 1 - blend_left / C.BLEND_FRAMES)
                 blend_left -= 1
             out.append(world)
+            trace_frame.append(cur)
+            trace_jump.append(False)
 
             decide = (step % C.SEARCH_INTERVAL == 0 and step > 0) or self._is_end(cur)
             if decide:
@@ -161,11 +166,15 @@ class MotionGraph:
                 if best_tr:
                     align = alignment_to(self.xy[best], self.yaw[best], cwx, cwy)
                     frozen, blend_left = world.copy(), C.BLEND_FRAMES
+                    trace_jump[-1] = True                       # this frame took a transition edge
                 cur = best
             elif not self._is_end(cur):
                 cur += 1
             step += 1
-        return np.asarray(out)
+        out = np.asarray(out)
+        if return_trace:
+            return out, np.array(trace_frame), np.array(trace_jump)
+        return out
 
     # --- task2: beam-search planning to a terminal state (in-betweening) -----
     def _pose_dist(self, a, b):

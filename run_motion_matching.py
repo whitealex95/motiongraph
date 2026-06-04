@@ -21,7 +21,7 @@ from motiongraph.kinematics import transform_qpos, alignment_to, ease_to_termina
 from motiongraph.cleanup import cleanup
 from motiongraph.features import _local
 
-START = 800   # a settled walking frame (clips are trimmed, then thousands of frames)
+START = 1500  # a steady walking frame in walk1_subject2
 
 
 def _cmd_marker(out, command):
@@ -51,7 +51,7 @@ def gen_task2(mm=None, clean=True):
     term_frame = 1200                                 # a mid-clip walk pose for the terminal
     dy, pv, of = alignment_to(lib["qpos"][term_frame, 0:2], lib["yaw"][term_frame], target_xy, target_yaw)
     term_world = transform_qpos(lib["qpos"][term_frame], dy, pv, of)[0]
-    cmd = SpeedCommand([(0.0, 0.0, 0.0), (1.0, 1.3, np.deg2rad(20))])
+    cmd = SpeedCommand([(0.0, 0.0, 0.0), (1.0, 1.1, np.deg2rad(20))])
 
     def traj_fn(t, xy, yaw):
         if t < T - tail:

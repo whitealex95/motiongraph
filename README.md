@@ -53,8 +53,12 @@ available, as here).
 - **Format:** one CSV per clip, 30 FPS. Each row is 36 floats:
   `root (x, y, z, qx, qy, qz, qw)` followed by 29 joint angles in canonical Unitree
   order (`left_hip_pitch … right_wrist_yaw`).
-- **Clips used:** the walk-heavy locomotion subset — all 12 `walk*` clips plus 4
-  `run*` and 2 `sprint*` (~130 k frames after trimming).
+- **Clips used:** a **single** continuous walking sequence, `walk1_subject2`
+  (~258 s, 7750 frames after trimming). Using one clip keeps the motion distribution
+  **unimodal** — one subject, one gait — so matching/graph never hop between styles or
+  speeds (the multi-clip set mixed walk/run/sprint and 6 subjects). `download_data.sh`
+  still fetches the wider set; `config.LOCO_CLIPS` selects what the library is built
+  from. Because one clip tops out at ~1.3 m/s, the demo commands are walking-speed.
 - **T-pose trim:** every clip begins and ends in a T-pose that blends into the motion
   over ~1.5 s, so `data.py` drops `TRIM = 45` frames from each end.
 - **Robot model:** the menagerie `unitree_g1` (`g1_29dof_rev_1_0`) is vendored under
@@ -183,13 +187,28 @@ Kinematic stitching introduces two artifacts, both measured by `tools/diagnose.p
 ease-to-terminal → foot-lock* (lock last, so the eased tail's feet are also clean).
 Because foot-lock never moves the root, the exact terminal arrival is preserved.
 
+Metrics on the single-clip library (sole slip measured only while a foot is *steady*,
+so normal heel-strike isn't counted):
+
 | demo | root-jump [m] | jitter (jerk RMS) | sole slip [m/s] |
 |---|---|---|---|
 | raw LAFAN1 walk (reference) | — | — | 0.21 |
-| mm_task1 | 0.10 | 147 (was 1263) | 0.12 |
-| mm_task2 | 0.06 | 123 (was 686) | 0.23 |
-| mg_task1 | 0.05 | 29 (was 178) | 0.04 |
-| mg_task2 | 0.05 (was 4.06) | 79 (was 17470) | 0.26 |
+| mm_task1 | 0.05 | 84 | 0.10 |
+| mm_task2 | 0.07 | 103 | 0.20 |
+| mg_task1 | 0.05 | 32 | 0.04 |
+| mg_task2 | 0.05 | 44 | 0.06 |
+
+(For reference, before the quality pass the worst cases were jitter ~1300–17000 and a
+4.06 m root teleport in mg_task2.)
+
+### Interactive web view (`tools/visualize_graph.py` → `outputs/motion_graph.html`)
+
+`python -m tools.visualize_graph` writes a self-contained interactive HTML (Plotly via
+CDN) with two linked views: **(left)** a 3-D animated G1 skeleton of a graph-generated
+walk you can play / scrub / orbit, and **(right)** the motion graph itself — every frame
+embedded in 2-D pose space (PCA of the transition descriptor), the transition edges in
+grey, and the greedy walk's traversal drawn in blue (playing a clip) and red (taking a
+transition edge). The walking gait shows up as a loop in pose space.
 
 ---
 
@@ -211,6 +230,7 @@ motiongraph/
   footlock.py           foot-lock IK (sole-sphere pin via damped least squares)
   cleanup.py            post-process: root de-jitter -> foot-lock
 tools/diagnose.py       quality metrics + time-axis plots (root speed, foot slip)
+tools/visualize_graph.py interactive web view: 3-D motion + 2-D graph (HTML)
 run_motion_matching.py  MM demos (task1 / task2)
 run_motion_graph.py     MG demos (task1 / task2)
 outputs/                rendered MP4s + diag_*.png (git-ignored)
@@ -252,3 +272,6 @@ outputs/                rendered MP4s + diag_*.png (git-ignored)
    that snapped eased frames to the target); cut root jitter ~90 % with Savitzky-Golay
    smoothing + MM jump hysteresis; and added foot-lock IK to remove foot skating down
    to the raw-data floor.
+9. Switched the library to a **single** walk sequence (unimodal); retuned commands to
+   walking speed and densified the graph so the greedy still steers. Added
+   `tools/visualize_graph.py` for an interactive web view of the graph.

@@ -52,13 +52,13 @@ class SpeedCommand:
 
 
 def demo_speed_schedule():
-    """Stand -> walk forward -> turn left -> speed up (run) -> turn right -> slow."""
+    """Stand -> walk forward -> turn left -> turn right -> slow (walking speeds only)."""
     d = np.deg2rad
     return SpeedCommand([
         (0.0, 0.0, d(0)),     # settle
-        (1.0, 1.1, d(0)),     # walk +x
-        (4.0, 1.2, d(90)),    # turn to +y
-        (7.0, 2.6, d(90)),    # run
-        (10.0, 2.6, d(0)),    # turn back to +x
-        (13.0, 1.0, d(-45)),  # slow, veer
+        (1.0, 1.0, d(0)),     # walk +x
+        (4.0, 1.1, d(90)),    # turn to +y
+        (7.5, 1.2, d(10)),    # turn back toward +x
+        (11.0, 1.0, d(-40)),  # veer right
+        (13.5, 0.7, d(-40)),  # slow
     ])
