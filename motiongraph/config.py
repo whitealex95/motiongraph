@@ -10,6 +10,13 @@ OUT_DIR = os.path.join(ROOT, "outputs")
 FPS = 30
 DT = 1.0 / FPS
 
+# Jump skill: a walk base clip + CAMDM walk->jump->walk clips (G1-retargeted LAFAN1).
+JUMP_DATA_DIR = os.path.join(ROOT, "data", "g1_jump")
+JUMP_LIB_PATH = os.path.join(ROOT, "data", "motion_lib_jump.npz")
+JUMP_BASE_WALK = "walk1_subject2"                       # rich locomotion base (from DATA_DIR)
+JUMP_CLIPS = ["walk_jump_walk", "walk_jump_walk2", "walk_jump_stop"]   # from JUMP_DATA_DIR
+SKILLS = ["walk", "jump"]
+
 # CSV / qpos layout. Dataset row = [pos(3), quat_xyzw(4), joints(29)] = 36.
 # MuJoCo free-joint qpos = [pos(3), quat_wxyz(4), joints(29)] = 36 (same joint order).
 NQ = 36

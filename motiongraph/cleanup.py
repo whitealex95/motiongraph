@@ -15,7 +15,8 @@ from .footlock import footlock
 def cleanup(qpos_seq, model=None, smooth=True, lock=True):
     out = np.array(qpos_seq, dtype=np.float64)
     if smooth and len(out) > C.SMOOTH_WINDOW:
-        out[:, 0:3] = savgol_filter(out[:, 0:3], C.SMOOTH_WINDOW, 3, axis=0)  # root pos only
+        out[:, 0:2] = savgol_filter(out[:, 0:2], C.SMOOTH_WINDOW, 3, axis=0)  # root xy only
+        # NB: root z is left untouched so vertical jump peaks are not flattened.
     if lock:
         out = footlock(out, model)
     return out
