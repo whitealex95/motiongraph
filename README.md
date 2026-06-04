@@ -17,6 +17,10 @@ display.
   specified terminal state (position + heading + pose) at a fixed time. The red
   sphere marks the commanded direction; the green sphere marks the terminal target.
 
+There is also a **jump skill** (§3b): `jump_task1_oncommand.mp4` (walk, then jump on a
+trigger) and `jump_task2_fixedloc.mp4` (walk, then land the jump apex at a fixed spot —
+green marker — by optimizing the trigger over the graph).
+
 ---
 
 ## 1. Quickstart
@@ -203,12 +207,51 @@ so normal heel-strike isn't counted):
 
 ### Interactive web view (`tools/visualize_graph.py` → `outputs/motion_graph.html`)
 
-`python -m tools.visualize_graph` writes a self-contained interactive HTML (Plotly via
-CDN) with two linked views: **(left)** a 3-D animated G1 skeleton of a graph-generated
+`python -m tools.visualize_graph walk` writes a self-contained interactive HTML (Plotly
+via CDN) with two linked views: **(left)** a 3-D animated G1 skeleton of a graph-generated
 walk you can play / scrub / orbit, and **(right)** the motion graph itself — every frame
 embedded in 2-D pose space (PCA of the transition descriptor), the transition edges in
 grey, and the greedy walk's traversal drawn in blue (playing a clip) and red (taking a
 transition edge). The walking gait shows up as a loop in pose space.
+
+---
+
+## 3b. Jump skill: walk → jump (`run_jump.py`, jump-labelled motion graph)
+
+Locomotion that breaks into a **jump**, built by adding a *skill* to the motion graph.
+
+- **Data (from `~/Projects/CAMDM`):** G1-retargeted LAFAN1 `walk_jump_walk*` clips —
+  short straight sequences that walk, jump, and keep walking. `data/g1_jump/` holds
+  them; `data.py:build_jump_library()` concatenates the walk base (`walk1_subject2`)
+  with the jump clips into `data/motion_lib_jump.npz`.
+- **Skill labels:** each frame is auto-labelled `walk` / `jump` — a jump is the
+  airborne phase (both feet off the floor) padded over the take-off crouch and landing.
+  Per jump we record its `entry` (a walking run-up frame), `takeoff`, `land`, and a
+  `continues` flag (does it keep walking after landing).
+- **Skill-aware graph (`motion_graph.py`):** every transition edge is tagged
+  `(skill_from → skill_to)`. `top_skill_edges(k)` returns the best edges per pair
+  (e.g. the **top-5 walk→jump** take-off transitions); `best_jump_entry(cur)` returns
+  the jump run-up whose pose best matches the current walk, for a smooth take-off.
+
+**task1 — jump on command.** Walk forward at 1 m/s; at the trigger time, transition to
+`best_jump_entry` and *ride the straight walk→jump→walk clip through landing*, then keep
+walking. The goal is the **jump action itself**, not a target position. (The jump clips
+are nearly straight, so the path stays straight without returning to the curvier base.)
+
+**task2 — jump at a fixed location (graph optimization).** Same 1 m/s walk, but the jump
+apex must land at a fixed `x`. The trigger time is chosen by a **search over the graph**
+(try candidate trigger frames, measure the resulting apex `x`, keep the best) — a small
+motion-graph optimization that hits the target within ~0.05 m.
+
+```bash
+python run_jump.py both          # -> outputs/jump_task1_oncommand.mp4, jump_task2_fixedloc.mp4
+python -m tools.visualize_graph jump   # -> outputs/motion_graph_jump.html
+```
+
+The jump web view colours every node by skill — **walk** frames form the central cluster,
+**jump** frames (airborne/crouch poses) scatter to the periphery — with `walk→jump`
+(orange, top-5 thick) and `jump→walk` (green) skill-transition edges, plus the generated
+walk-then-jump traversal (blue walk, orange jump).
 
 ---
 
@@ -226,14 +269,16 @@ motiongraph/
   commands.py           speed command -> predicted trajectory
   render.py             offline MuJoCo -> MP4 renderer
   motion_matching.py    feature DB + nearest-neighbour controller
-  motion_graph.py       transition graph + greedy follower + beam planner
+  motion_graph.py       transition graph + greedy follower + beam planner + jump skill
   footlock.py           foot-lock IK (sole-sphere pin via damped least squares)
   cleanup.py            post-process: root de-jitter -> foot-lock
+data/g1_jump/           CAMDM walk->jump->walk clips (for the jump skill)
 tools/diagnose.py       quality metrics + time-axis plots (root speed, foot slip)
-tools/visualize_graph.py interactive web view: 3-D motion + 2-D graph (HTML)
+tools/visualize_graph.py interactive web view: 3-D motion + 2-D graph [walk|jump] (HTML)
 run_motion_matching.py  MM demos (task1 / task2)
 run_motion_graph.py     MG demos (task1 / task2)
-outputs/                rendered MP4s + diag_*.png (git-ignored)
+run_jump.py             jump-skill demos (on-command / fixed-location)
+outputs/                rendered MP4s + diag_*.png + *.html (git-ignored)
 ```
 
 ---
