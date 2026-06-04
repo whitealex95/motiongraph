@@ -98,25 +98,40 @@ def build(which="jump"):
     if ex:
         fig.add_trace(go.Scattergl(x=ex, y=ey, mode="lines",
                       line=dict(color="darkorange", width=4), name="top-5 walk->jump"), 1, 2)
-    # generated traversal: walk (blue) vs jump (orange) segments -- thin, under the nodes
-    wx, wy, jx, jy = [], [], [], []
-    for k in range(1, len(tframe)):
-        a, b = tframe[k - 1], tframe[k]
-        seg = (jx, jy) if tphase[k] else (wx, wy)
-        seg[0].extend([P[a, 0], P[b, 0], None]); seg[1].extend([P[a, 1], P[b, 1], None])
-    fig.add_trace(go.Scattergl(x=wx, y=wy, mode="lines", line=dict(color="rgba(65,105,225,0.7)", width=1.3),
-                  name="traversal (walk)"), 1, 2)
-    if jx:
-        fig.add_trace(go.Scattergl(x=jx, y=jy, mode="lines", line=dict(color="rgba(255,140,0,0.9)", width=2.2),
-                      name="traversal (jump)"), 1, 2)
-    # nodes coloured by skill -- drawn last so they sit on top
+    # nodes coloured by skill -- drawn before the animated traversal
     for s, col, nm, sz in [(0, "steelblue", "walk frames", 3), (1, "orangered", "jump frames", 7)]:
         m = skill == s
         fig.add_trace(go.Scattergl(x=P[m, 0], y=P[m, 1], mode="markers",
                       marker=dict(size=sz, color=col, opacity=0.45 if s == 0 else 0.95,
                                   line=dict(width=0.5, color="black") if s == 1 else None),
                       name=nm, hoverinfo="skip"), 1, 2)
-    n_static = len(fig.data)                              # 3-D skeleton is appended next
+
+    # animated traversal: split the path into UPCOMING (faint, dashed) and PASSED
+    # (bold; walk=blue, jump=orange) at the current frame, plus a "now" marker.
+    def state(k):
+        up, pw, pj = [[], []], [[], []], [[], []]
+        for s in range(1, len(tframe)):
+            a, b = tframe[s - 1], tframe[s]
+            xs, ys = [P[a, 0], P[b, 0], None], [P[a, 1], P[b, 1], None]
+            tgt = (pj if tphase[s] else pw) if s <= k else up
+            tgt[0].extend(xs); tgt[1].extend(ys)
+        c = tframe[min(k, len(tframe) - 1)]
+        return up, pw, pj, ([P[c, 0]], [P[c, 1]])
+
+    up0, pw0, pj0, mk0 = state(0)
+    iU = len(fig.data)
+    fig.add_trace(go.Scattergl(x=up0[0], y=up0[1], mode="lines", name="upcoming edges",
+                  line=dict(color="rgba(120,120,120,0.55)", width=1.4, dash="dot")), 1, 2)
+    iPW = len(fig.data)
+    fig.add_trace(go.Scattergl(x=pw0[0], y=pw0[1], mode="lines", name="passed (walk)",
+                  line=dict(color="royalblue", width=2.6)), 1, 2)
+    iPJ = len(fig.data)
+    fig.add_trace(go.Scattergl(x=pj0[0], y=pj0[1], mode="lines", name="passed (jump)",
+                  line=dict(color="darkorange", width=3.2)), 1, 2)
+    iM = len(fig.data)
+    fig.add_trace(go.Scattergl(x=mk0[0], y=mk0[1], mode="markers", name="current",
+                  marker=dict(size=12, color="red", line=dict(width=1, color="white"))), 1, 2)
+    iSk = len(fig.data)                                   # 3-D skeleton appended next
 
     # ---- left: 3-D animation ----
     centers = out[:, 0:2]
@@ -125,15 +140,23 @@ def build(which="jump"):
                   line=dict(color="black", width=5), name="G1"), 1, 1)
     frames = []
     for k in range(0, len(out), ANIM_STRIDE):
+        up, pw, pj, mk = state(k)
         xs, ys, zs = _seg(gm.model, gm.data, out[k], centers[k])
-        frames.append(go.Frame(name=str(k), data=[go.Scatter3d(x=xs, y=ys, z=zs)], traces=[n_static]))
+        frames.append(go.Frame(name=str(k), traces=[iU, iPW, iPJ, iM, iSk], data=[
+            go.Scattergl(x=up[0], y=up[1]), go.Scattergl(x=pw[0], y=pw[1]),
+            go.Scattergl(x=pj[0], y=pj[1]), go.Scattergl(x=mk[0], y=mk[1]),
+            go.Scatter3d(x=xs, y=ys, z=zs)]))
     fig.frames = frames
 
     fig.update_layout(
         title=title,
-        scene=dict(xaxis=dict(range=[-0.7, 0.7], title=""), yaxis=dict(range=[-0.7, 0.7], title=""),
-                   zaxis=dict(range=[0, 1.8], title=""), aspectmode="data",
-                   camera=dict(eye=dict(x=1.5, y=1.5, z=0.8))),
+        uirevision="keep",                               # don't reset camera between frames
+        scene=dict(                                      # fixed box -> the skeleton never rescales
+            xaxis=dict(range=[-0.8, 0.8], title="", autorange=False),
+            yaxis=dict(range=[-0.8, 0.8], title="", autorange=False),
+            zaxis=dict(range=[0, 1.9], title="", autorange=False),
+            aspectmode="manual", aspectratio=dict(x=1, y=1, z=1.2),
+            uirevision="keep", camera=dict(eye=dict(x=1.6, y=1.6, z=0.9))),
         updatemenus=[dict(type="buttons", x=0.02, y=0.05, showactive=False, buttons=[
             dict(label="play", method="animate",
                  args=[None, dict(frame=dict(duration=33, redraw=True), fromcurrent=True)]),

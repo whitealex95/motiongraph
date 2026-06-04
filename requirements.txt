@@ -6,3 +6,4 @@ imageio>=2.37
 imageio-ffmpeg>=0.4
 matplotlib>=3.8        # tools/diagnose.py plots
 plotly>=6.0           # tools/visualize_graph.py interactive HTML (kaleido optional, for PNG)
+Pillow>=10.0           # render.py HUD/transition overlay

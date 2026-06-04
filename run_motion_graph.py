@@ -18,6 +18,7 @@ from motiongraph.commands import SpeedCommand
 from motiongraph.motion_graph import MotionGraph
 from motiongraph.kinematics import transform_qpos, alignment_to, ease_to_terminal
 from motiongraph.cleanup import cleanup
+from motiongraph.render import trace_labels
 
 START = 1500   # a steady walking frame in walk1_subject2
 
@@ -45,10 +46,11 @@ def _gentle_schedule():
 def gen_task1(g=None, clean=True):
     g = g or MotionGraph(load_library())
     cmd = _gentle_schedule()
-    out = g.follow_command(cmd, seconds=15.0, start_frame=START)
+    out, tframe, _ = g.follow_command(cmd, seconds=15.0, start_frame=START, return_trace=True)
+    trace = trace_labels(tframe, g.lib)
     if clean:
         out = cleanup(out)                                # de-jitter root + foot-lock
-    return out, _cmd_marker(out, cmd)
+    return out, _cmd_marker(out, cmd), trace
 
 
 def gen_task2(g=None, clean=True):
@@ -68,12 +70,12 @@ def gen_task2(g=None, clean=True):
 
     def marker(t):
         return [([target_xy[0], target_xy[1], 0.9], 0.12, [0.2, 1, 0.2, 1])]
-    return out, marker
+    return out, marker, None                              # in-betweening: no per-frame HUD
 
 
-def _render(out, markers_fn, name):
+def _render(out, markers_fn, trace, name):
     from motiongraph.render import render_qpos
-    render_qpos(out, f"{C.OUT_DIR}/{name}.mp4", markers_fn=markers_fn)
+    render_qpos(out, f"{C.OUT_DIR}/{name}.mp4", markers_fn=markers_fn, trace=trace)
 
 
 if __name__ == "__main__":

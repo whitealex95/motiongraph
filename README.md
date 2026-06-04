@@ -209,10 +209,15 @@ so normal heel-strike isn't counted):
 
 `python -m tools.visualize_graph walk` writes a self-contained interactive HTML (Plotly
 via CDN) with two linked views: **(left)** a 3-D animated G1 skeleton of a graph-generated
-walk you can play / scrub / orbit, and **(right)** the motion graph itself — every frame
-embedded in 2-D pose space (PCA of the transition descriptor), the transition edges in
-grey, and the greedy walk's traversal drawn in blue (playing a clip) and red (taking a
-transition edge). The walking gait shows up as a loop in pose space.
+walk you can play / scrub / orbit (fixed-scale box), and **(right)** the motion graph
+itself — every frame embedded in 2-D pose space (PCA of the transition descriptor) with
+the transition edges in grey. As the animation plays, the traversal updates in sync:
+**passed** edges are bold (blue walk / orange jump), **upcoming** edges are a faint dotted
+preview, and a red dot marks the current graph node.
+
+Rendered MP4s carry a HUD showing the current **clip name and frame index**, and whenever
+the motion jumps to a non-consecutive frame (a graph transition) a cyan border flashes
+with a banner naming the edge taken (`clipA #i → clipB #j`).
 
 ---
 

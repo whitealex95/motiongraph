@@ -19,6 +19,7 @@ from motiongraph.commands import SpeedCommand, demo_speed_schedule
 from motiongraph.motion_matching import MotionMatcher
 from motiongraph.kinematics import transform_qpos, alignment_to, ease_to_terminal
 from motiongraph.cleanup import cleanup
+from motiongraph.render import trace_labels
 from motiongraph.features import _local
 
 START = 1500  # a steady walking frame in walk1_subject2
@@ -36,10 +37,11 @@ def _cmd_marker(out, command):
 def gen_task1(mm=None, clean=True):
     mm = mm or MotionMatcher(load_library(), traj_w=1.5, pose_w=1.0)
     cmd = demo_speed_schedule()
-    out = mm.generate(cmd, seconds=15.0, start_frame=START)
+    out, tframe = mm.generate(cmd, seconds=15.0, start_frame=START, return_trace=True)
+    trace = trace_labels(tframe, mm.lib)
     if clean:
         out = cleanup(out)                                # de-jitter root + foot-lock
-    return out, _cmd_marker(out, cmd)
+    return out, _cmd_marker(out, cmd), trace
 
 
 def gen_task2(mm=None, clean=True):
@@ -76,12 +78,12 @@ def gen_task2(mm=None, clean=True):
 
     def marker(t):
         return [([target_xy[0], target_xy[1], 0.9], 0.12, [0.2, 1, 0.2, 1])]  # green: target
-    return out, marker
+    return out, marker, None                              # in-betweening: no per-frame HUD
 
 
-def _render(out, markers_fn, name):
+def _render(out, markers_fn, trace, name):
     from motiongraph.render import render_qpos
-    render_qpos(out, f"{C.OUT_DIR}/{name}.mp4", markers_fn=markers_fn)
+    render_qpos(out, f"{C.OUT_DIR}/{name}.mp4", markers_fn=markers_fn, trace=trace)
 
 
 if __name__ == "__main__":

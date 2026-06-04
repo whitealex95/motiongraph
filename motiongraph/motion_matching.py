@@ -33,17 +33,18 @@ class MotionMatcher:
         query = np.concatenate([traj_block, self.raw[cur, F.TRAJ_DIM:]])
         return ((query - self.mean) / self.std) * self.w
 
-    def generate(self, command, seconds, start_frame=0, traj_fn=None):
+    def generate(self, command, seconds, start_frame=0, traj_fn=None, return_trace=False):
         """Roll out for `seconds`; traj_fn(t,xy,yaw)->block overrides the command query.
 
         Hysteresis: at a search we only jump to the nearest neighbour if it is
         clearly better (by jump_margin) than simply continuing the current clip.
         This keeps the character on long continuous fragments -> less jitter/skating.
+        With return_trace, also return the per-frame library index sequence.
         """
         n = int(seconds * C.FPS)
         cur = start_frame
         dyaw, pivot, offset = -self.yaw[cur], self.xy[cur].copy(), np.zeros(2)  # start at origin, +x
-        out, frozen, blend_left = [], None, 0
+        out, frozen, blend_left, tframe = [], None, 0, []
         for step in range(n):
             t = step * C.DT
             world = transform_qpos(self.qpos[cur], dyaw, pivot, offset)[0]
@@ -51,7 +52,7 @@ class MotionMatcher:
             if blend_left > 0:
                 world = blend_qpos(frozen, world, 1 - blend_left / C.BLEND_FRAMES)
                 blend_left -= 1
-            out.append(world)
+            out.append(world); tframe.append(cur)
 
             if step > 0 and (step % C.MM_SEARCH_INTERVAL == 0 or self._is_clip_end(cur)):
                 block = traj_fn(t, cwx, cwy) if traj_fn else command.trajectory(cwx, cwy, t)
@@ -71,4 +72,5 @@ class MotionMatcher:
                     cur += 1
             elif not self._is_clip_end(cur):
                 cur += 1
-        return np.asarray(out)
+        out = np.asarray(out)
+        return (out, np.array(tframe)) if return_trace else out
