@@ -29,6 +29,19 @@ def alignment_to(lib_xy, lib_yaw, world_xy, world_yaw):
     return world_yaw - lib_yaw, np.asarray(lib_xy, float), np.asarray(world_xy, float)
 
 
+def ease_to_terminal(out, term, k):
+    """Ease the last k frames of `out` onto terminal pose `term` (pose + position)."""
+    k = min(k, len(out))
+    for j in range(k):
+        w = (j + 1) / k
+        idx = len(out) - k + j
+        planned = out[idx].copy()                       # save before blend overwrites position
+        eased = blend_qpos(planned, term, w)            # joints + orientation -> terminal
+        eased[0:3] = (1 - w) * planned[0:3] + w * term[0:3]   # position lerp from planned pose
+        out[idx] = eased
+    return out
+
+
 def blend_qpos(frozen, live, w):
     """Ease joints + root orientation from a frozen pose toward the live pose (w:0->1).
 

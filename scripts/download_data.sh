@@ -8,10 +8,11 @@ OUT="$(cd "$(dirname "$0")/.." && pwd)/data/g1"
 BASE="https://huggingface.co/datasets/${REPO}/resolve/main/g1"
 mkdir -p "$OUT"
 
-# Locomotion subset used by the demos; pass "all" to grab every G1 clip.
-CLIPS=(walk1_subject1 walk1_subject2 walk1_subject5 walk2_subject1 walk3_subject1 \
-       walk3_subject2 walk4_subject1 run1_subject2 run1_subject5 run2_subject1 \
-       sprint1_subject2 sprint1_subject4)
+# Locomotion subset used by the demos (all walk + run/sprint); pass "all" for every clip.
+CLIPS=(walk1_subject1 walk1_subject2 walk1_subject5 walk2_subject1 walk2_subject3 \
+       walk2_subject4 walk3_subject1 walk3_subject2 walk3_subject3 walk3_subject4 \
+       walk3_subject5 walk4_subject1 run1_subject2 run1_subject5 run2_subject1 \
+       run2_subject4 sprint1_subject2 sprint1_subject4)
 
 if [[ "${1:-}" == "all" ]]; then
   echo "Fetching full G1 file list from HF API..."

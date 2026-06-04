@@ -15,7 +15,7 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 from . import config as C
-from .kinematics import transform_qpos, alignment_to, blend_qpos
+from .kinematics import transform_qpos, alignment_to, blend_qpos, ease_to_terminal
 
 
 def _descriptors(lib):
@@ -183,15 +183,27 @@ class MotionGraph:
         return opts
 
     def plan_to(self, command, seconds, start_frame, target_xy, target_yaw, term_frame,
-                K=None, beam=64, w_pos=1.2, w_yaw=0.4, w_pose=0.15, cmd_w=0.3, max_speed=3.0):
+                K=None, beam=64, w_pos=1.5, w_yaw=0.4, w_pose=0.15, cmd_w=0.4,
+                max_speed=3.0, tail=2.5):
         """Beam search for an edge sequence that reaches the terminal at time `seconds`.
 
-        Cost = loose command tracking + transition penalties; goal cost adds endpoint
-        position/heading/pose error. Returns a stitched, blended, terminal-eased clip.
+        Desired velocity follows the speed command while cruising, then switches to
+        reach-target pacing (toward the target at remaining_distance / remaining_time)
+        for the final `tail` seconds, so the path actually arrives. Cost = velocity
+        tracking + transition penalties; goal cost adds endpoint pose/position error.
         """
         K = K or C.SEARCH_INTERVAL
         N = int(seconds * C.FPS)
         target_xy = np.asarray(target_xy, float)
+
+        def desired_vel(xy_end, t_end):
+            tsec = t_end * C.DT
+            if tsec < seconds - tail:
+                return command.desired_velocity(tsec)
+            d = target_xy - xy_end                          # steer onto the target
+            rem_t = max(C.DT, seconds - tsec)
+            n = np.linalg.norm(d)
+            return (min(max_speed, n / rem_t) * d / n) if n > 1e-6 else np.zeros(2)
         # node = [cur, align, xy, yaw, t, cost, parent, start_frame, is_jump]
         a0 = (-self.yaw[start_frame], self.xy[start_frame].copy(), np.zeros(2))
         x0 = transform_qpos(self.qpos[start_frame], *a0)[0]
@@ -211,7 +223,7 @@ class MotionGraph:
                 for start, al, jump, pen in self._options(cur, xy, yaw, align):
                     world, exy, eyaw, last = self._play(start, K, al)
                     avgv = (exy - world[0, :2]) / (max(len(world), 1) * C.DT)
-                    want = command.desired_velocity((t + len(world) / 2) * C.DT)
+                    want = desired_vel(exy, t + len(world))
                     sc = cost + cmd_w * np.linalg.norm(avgv - want) + pen
                     nodes.append([last, al, exy, eyaw, t + len(world), sc, nid, start, jump])
                     nxt.append(len(nodes) - 1)
@@ -247,13 +259,7 @@ class MotionGraph:
         # terminal pose placed at the target world pose, then ease the tail onto it
         dy, pv, of = alignment_to(self.xy[term_frame], self.yaw[term_frame], target_xy, target_yaw)
         term = transform_qpos(self.qpos[term_frame], dy, pv, of)[0]
-        k = min(int(0.7 * C.FPS), len(out))
-        for j in range(k):
-            wt = (j + 1) / k
-            idx = len(out) - k + j
-            out[idx] = blend_qpos(out[idx], term, wt)
-            out[idx, 0:3] = (1 - wt) * out[idx, 0:3] + wt * term[0:3]
-        return out
+        return ease_to_terminal(out, term, int(0.7 * C.FPS))
 
 
 def _angdiff(a, b):

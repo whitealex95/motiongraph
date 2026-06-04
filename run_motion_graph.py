@@ -5,6 +5,8 @@
   task2: in-betweening by beam search -- plan an edge sequence that arrives at a
          terminal state at a fixed time.
 
+The gen_* functions return (qpos_sequence, markers_fn) for tools/diagnose.py.
+
 Usage: python run_motion_graph.py [task1|task2|both]
 """
 import sys
@@ -14,6 +16,8 @@ from motiongraph import config as C
 from motiongraph.data import load_library
 from motiongraph.commands import SpeedCommand
 from motiongraph.motion_graph import MotionGraph
+from motiongraph.kinematics import transform_qpos, alignment_to, ease_to_terminal
+from motiongraph.cleanup import cleanup
 
 START = 2500   # a steady walking frame in walk1_subject1
 
@@ -38,34 +42,43 @@ def _gentle_schedule():
     ])
 
 
-def task1():
-    lib = load_library()
-    g = MotionGraph(lib)
+def gen_task1(g=None, clean=True):
+    g = g or MotionGraph(load_library())
     cmd = _gentle_schedule()
     out = g.follow_command(cmd, seconds=15.0, start_frame=START)
-    from motiongraph.render import render_qpos
-    render_qpos(out, f"{C.OUT_DIR}/mg_task1_speed.mp4", markers_fn=_cmd_marker(out, cmd))
+    if clean:
+        out = cleanup(out)                                # de-jitter root + foot-lock
+    return out, _cmd_marker(out, cmd)
 
 
-def task2():
-    lib = load_library()
-    g = MotionGraph(lib)
-    cmd = SpeedCommand([(0.0, 1.3, np.deg2rad(15))])
-    target_xy = np.array([4.0, 1.0])
-    target_yaw = np.deg2rad(20)
+def gen_task2(g=None, clean=True):
+    g = g or MotionGraph(load_library())
+    cmd = SpeedCommand([(0.0, 1.3, np.deg2rad(15))])   # cruise; planner steers onto target in the tail
+    target_xy = np.array([7.5, 2.0])                   # reachable given the command over 8 s
+    target_yaw = np.deg2rad(60)                        # arrive facing a different way (true in-between)
     term_frame = 2600
     out = g.plan_to(cmd, seconds=8.0, start_frame=START,
                     target_xy=target_xy, target_yaw=target_yaw, term_frame=term_frame)
+    if clean:
+        out = cleanup(out, lock=False)                 # smooth root (lock comes after the ease)
+        dy, pv, of = alignment_to(g.qpos[term_frame, 0:2], g.yaw[term_frame], target_xy, target_yaw)
+        out = ease_to_terminal(out, transform_qpos(g.qpos[term_frame], dy, pv, of)[0], int(0.7 * C.FPS))
+        from motiongraph.footlock import footlock      # lock feet of the eased tail too
+        out = footlock(out)
 
     def marker(t):
         return [([target_xy[0], target_xy[1], 0.9], 0.12, [0.2, 1, 0.2, 1])]
+    return out, marker
+
+
+def _render(out, markers_fn, name):
     from motiongraph.render import render_qpos
-    render_qpos(out, f"{C.OUT_DIR}/mg_task2_inbetween.mp4", markers_fn=marker)
+    render_qpos(out, f"{C.OUT_DIR}/{name}.mp4", markers_fn=markers_fn)
 
 
 if __name__ == "__main__":
     which = sys.argv[1] if len(sys.argv) > 1 else "both"
     if which in ("task1", "both"):
-        task1()
+        _render(*gen_task1(), "mg_task1_speed")
     if which in ("task2", "both"):
-        task2()
+        _render(*gen_task2(), "mg_task2_inbetween")

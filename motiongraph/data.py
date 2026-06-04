@@ -9,6 +9,7 @@ from .g1_model import G1Model, csv_to_qpos, quat_wxyz_yaw
 
 def _load_clip(name):
     rows = np.genfromtxt(os.path.join(C.DATA_DIR, name + ".csv"), delimiter=",")
+    rows = rows[C.TRIM:len(rows) - C.TRIM]   # drop T-pose blend frames at both ends
     return csv_to_qpos(rows)  # (T, 36) wxyz
 
 
