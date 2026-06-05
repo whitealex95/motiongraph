@@ -106,3 +106,74 @@ class MotionMatcher:
                 cur += 1
         out = np.asarray(out)
         return (out, np.array(tframe)) if return_trace else out
+
+    def walk_path(self, waypoints, box=None, start_frame=0, speed=1.0, reach=1.2,
+                  max_seconds=90, return_trace=False):
+        """Reactively walk through `waypoints` by aiming the NN trajectory query at the
+        current waypoint (go-to-point). If `box` is given, jump over it on each +x crossing
+        (entered from the `ready` run-up). No planner -> corners/returns are approximate."""
+        from .commands import SpeedCommand
+        n = int(max_seconds * C.FPS)
+        cur = start_frame
+        dyaw, pivot, offset = -self.yaw[cur], self.xy[cur].copy(), np.zeros(2)
+        out, frozen, blend_left, tframe = [], None, 0, []
+        wp, locked, armed, prev = 0, 0, True, np.zeros(2)
+        step = 0
+        while step < n and wp < len(waypoints):
+            world = transform_qpos(self.qpos[cur], dyaw, pivot, offset)[0]
+            cwx, cwy = world[0:2].copy(), self.yaw[cur] + dyaw
+            if blend_left > 0:
+                world = blend_qpos(frozen, world, 1 - blend_left / C.BLEND_FRAMES)
+                blend_left -= 1
+            out.append(world); tframe.append(cur)
+
+            if locked > 0:                                   # riding a jump
+                if not self._is_clip_end(cur):
+                    cur += 1
+                locked -= 1
+                step += 1
+                continue
+            if box is not None:                              # jump over the box on a +x crossing
+                d = np.asarray(box, float) - cwx
+                heading = np.array([np.cos(cwy), np.sin(cwy)])
+                aligned = abs(((np.arctan2(d[1], d[0]) - cwy + np.pi) % (2 * np.pi)) - np.pi) < 0.5
+                je = self.best_jump_entry(cur)
+                fwd = float(self.qpos[self.jump_apex_of[je[0]], 0] - self.qpos[je[0], 0]) if je else 0
+                if cwx[0] < 1.0:
+                    armed = True
+                if je and armed and aligned and 0 < (d @ heading) <= fwd:
+                    entry, land = je
+                    dyaw, pivot, offset = alignment_to(self.xy[entry], self.yaw[entry], cwx, cwy)
+                    frozen, blend_left = world.copy(), C.BLEND_FRAMES
+                    cur, locked, armed = entry, (land + 1 + C.PHASE_TOUCHDOWN + C.PHASE_AFTER) - entry, False
+                    step += 1
+                    continue
+
+            tx, ty = waypoints[wp]
+            dvec = np.array([tx, ty]) - cwx
+            seg = np.array([tx, ty]) - prev
+            passed = seg @ (cwx - np.array([tx, ty])) > 0 if seg @ seg > 1e-6 else False
+            if np.linalg.norm(dvec) < reach or passed:
+                prev = np.array([tx, ty]); wp += 1
+                continue
+
+            if step > 0 and (step % C.MM_SEARCH_INTERVAL == 0 or self._is_clip_end(cur)):
+                block = SpeedCommand([(0., speed, float(np.arctan2(dvec[1], dvec[0])))]).trajectory(cwx, cwy, 0.)
+                qstd = self._qstd(block, cur)
+                dist_best, vi = self.tree.query(qstd)
+                best = int(self.valid[vi])
+                end = self._is_clip_end(cur)
+                cont = 1e9 if end else float(np.linalg.norm(qstd - self.feat[cur + 1]))
+                if end or dist_best < cont * (1 - self.jump_margin):
+                    jump = not (self.clip_id[best] == self.clip_id[cur] and 0 <= best - cur <= 2)
+                    dyaw, pivot, offset = alignment_to(self.xy[best], self.yaw[best], cwx, cwy)
+                    if jump:
+                        frozen, blend_left = world.copy(), C.BLEND_FRAMES
+                    cur = best
+                elif not end:
+                    cur += 1
+            elif not self._is_clip_end(cur):
+                cur += 1
+            step += 1
+        out = np.asarray(out)
+        return (out, np.array(tframe)) if return_trace else out

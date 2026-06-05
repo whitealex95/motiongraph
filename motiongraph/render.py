@@ -84,13 +84,14 @@ def _overlay(img, label, flash, tinfo, t, fps):
 
 
 def render_qpos(qpos_seq, out_path, markers_fn=None, trace=None, box=None, boxes=None,
-                fps=C.FPS, width=1280, height=720, cam_dist=3.5, cam_elev=-18, cam_azim=120):
-    """Render frames with a root-tracking camera.
+                fps=C.FPS, width=1280, height=720, cam_dist=3.5, cam_elev=-18, cam_azim=120,
+                cam_fixed=None):
+    """Render frames with a root-tracking camera (or a fixed camera when cam_fixed is set).
 
     markers_fn(frame_idx) -> [(world_pos, size, rgba)] spheres to overlay.
     trace: optional list of trace_labels() dicts (len == frames) for the HUD/flash.
-    box / boxes: a static box dict(pos, half, rgba=, label=) -- or a list of them --
-           drawn every frame (predefined obstacles the character jumps over).
+    box / boxes: a static box dict(pos, half, rgba=, label=) -- or a list of them.
+    cam_fixed: (cx, cy, cz) look-at for a stationary wide camera (e.g. a whole path).
     """
     boxlist = (boxes or []) + ([box] if box else [])
     model = mujoco.MjModel.from_xml_path(C.SCENE_XML)
@@ -106,7 +107,7 @@ def render_qpos(qpos_seq, out_path, markers_fn=None, trace=None, box=None, boxes
     for t, q in enumerate(qpos_seq):
         data.qpos[:] = q
         mujoco.mj_kinematics(model, data)
-        cam.lookat[:] = [q[0], q[1], 0.8]                 # follow root
+        cam.lookat[:] = cam_fixed if cam_fixed is not None else [q[0], q[1], 0.8]
         renderer.update_scene(data, cam)
         for b in boxlist:                                 # predefined obstacles, always present
             _add_box(renderer.scene, b["pos"], b["half"],
