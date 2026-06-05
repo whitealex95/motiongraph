@@ -252,10 +252,14 @@ returns the best per pair, e.g. **top-5 walk→jump**.)
 run-up and ride the straight walk→jump→walk clip through landing, then keep walking. The
 goal is the **jump action itself**, not a target position.
 
-**task2 — jump at a fixed location (optimization).** Same 1 m/s walk, but the jump apex
-must land at a fixed `x`. The trigger time is chosen by a **search over candidates** (try
-trigger frames, measure the resulting apex `x`, keep the best) — hits the target within
-~0.1 m. Motion matching keeps the path noticeably straighter than the graph.
+**task2 — jump over a predefined box.** A box is **predefined** at a fixed `x` (a
+heuristic size from the jump clip — as tall as the foot clearance over its footprint, so
+the character clears it; stored per-jump as `jump_box` in the library). The character
+walks toward the box and the jump trigger is chosen by a **search over candidates** so the
+apex lands on the box (within ~0.1 m). The box is rendered the whole clip (before, during
+and after the jump) with a `PREDEFINED BOX x=…` label, making it explicit — especially for
+the graph — that the obstacle position was known in advance. Motion matching keeps the
+path noticeably straighter than the graph (so its box sits near `y≈0`).
 
 ```bash
 python run_jump.py both          # -> outputs/jump_{mm,mg}_task{1,2}_*.mp4

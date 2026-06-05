@@ -83,12 +83,14 @@ def _overlay(img, label, flash, tinfo, t, fps):
     return np.asarray(im)
 
 
-def render_qpos(qpos_seq, out_path, markers_fn=None, trace=None, fps=C.FPS,
+def render_qpos(qpos_seq, out_path, markers_fn=None, trace=None, box=None, fps=C.FPS,
                 width=1280, height=720, cam_dist=3.5, cam_elev=-18, cam_azim=120):
     """Render frames with a root-tracking camera.
 
     markers_fn(frame_idx) -> [(world_pos, size, rgba)] spheres to overlay.
     trace: optional list of trace_labels() dicts (len == frames) for the HUD/flash.
+    box:   optional dict(pos, half, rgba=, label=) -- a static box drawn every frame
+           (e.g. a predefined obstacle the character walks to and jumps over).
     """
     model = mujoco.MjModel.from_xml_path(C.SCENE_XML)
     data = mujoco.MjData(model)
@@ -104,16 +106,40 @@ def render_qpos(qpos_seq, out_path, markers_fn=None, trace=None, fps=C.FPS,
         mujoco.mj_kinematics(model, data)
         cam.lookat[:] = [q[0], q[1], 0.8]                 # follow root
         renderer.update_scene(data, cam)
+        if box is not None:                               # the predefined obstacle, always present
+            _add_box(renderer.scene, box["pos"], box["half"], box.get("rgba", [0.6, 0.4, 0.2, 0.9]))
         if markers_fn is not None:
             for pos, size, rgba in markers_fn(t):
                 _add_sphere(renderer.scene, pos, size, rgba)
         img = renderer.render()
         if trace is not None:
             img = _overlay(img, trace[min(t, len(trace) - 1)], flash[t], info[t], t, fps)
+        if box is not None and box.get("label"):
+            img = _box_label(img, box["label"])
         writer.append_data(img)
     writer.close()
     renderer.close()
     print(f"Wrote {out_path} ({len(qpos_seq)} frames @ {fps} fps)")
+
+
+def _box_label(img, text):
+    im = Image.fromarray(img)
+    d = ImageDraw.Draw(im, "RGBA")
+    W = im.size[0]
+    f = _font(24)
+    tw = d.textlength(text, font=f)
+    d.rectangle([W - tw - 36, 16, W - 12, 16 + 34], fill=(90, 55, 20, 200))
+    d.text((W - tw - 24, 20), text, font=f, fill=(255, 215, 150, 255))
+    return np.asarray(im)
+
+
+def _add_box(scene, pos, half, rgba):
+    if scene.ngeom >= scene.maxgeom:
+        return
+    g = scene.geoms[scene.ngeom]
+    mujoco.mjv_initGeom(g, mujoco.mjtGeom.mjGEOM_BOX, np.asarray(half, np.float64),
+                        np.asarray(pos, np.float64), np.eye(3).ravel(), np.asarray(rgba, np.float32))
+    scene.ngeom += 1
 
 
 def _add_sphere(scene, pos, size, rgba):

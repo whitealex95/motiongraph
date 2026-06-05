@@ -47,10 +47,28 @@ def _marker(out, target_x=None):
     return fn
 
 
+def _box(ctrl, out, tframe, x=None, label=None):
+    """A box (half-extents from the used jump clip) placed at the jump apex -- or at a
+    predefined x. It sits on the ground and the character jumps over it."""
+    lib = ctrl.lib
+    al = int(out[:, 2].argmax())
+    cid = lib["clip_id"][int(tframe[al])]
+    half = lib["jump_box"][0]
+    for k, t in enumerate(lib["jump_takeoff"]):
+        if lib["clip_id"][t] == cid:
+            half = lib["jump_box"][k]
+            break
+    half = [float(h) for h in half]
+    bx = float(out[al, 0]) if x is None else x
+    return dict(pos=[bx, float(out[al, 1]), half[2]], half=half,
+                rgba=[0.62, 0.42, 0.20, 0.92], label=label)
+
+
 def gen_task1(ctrl, clean=True):
     out, tf = _jump(ctrl, jump_at=5.5, trace=True)
     trace = trace_labels(tf, ctrl.lib)
-    return (cleanup(out) if clean else out), _marker(out), trace
+    box = _box(ctrl, out, tf, label="box (jumped over)")
+    return (cleanup(out) if clean else out), _marker(out), trace, box
 
 
 def gen_task2(ctrl, clean=True, target_x=5.0):
@@ -63,14 +81,16 @@ def gen_task2(ctrl, clean=True, target_x=5.0):
     print(f"  task2: jump_at={bt:.2f}s -> apex_x={best[best[:,2].argmax(),0]:.2f} (target {target_x}, err {err:.2f})")
     out, tf = _jump(ctrl, bt, trace=True)
     trace = trace_labels(tf, ctrl.lib)
-    return (cleanup(out) if clean else out), _marker(out, target_x), trace
+    # the box is PREDEFINED at target_x: the character walks to it, then jumps over it.
+    box = _box(ctrl, out, tf, x=target_x, label=f"PREDEFINED BOX  x={target_x:.1f}m")
+    return (cleanup(out) if clean else out), _marker(out), trace, box       # box = the target
 
 
 def run(tag, ctrl):
-    out, mk, tr = gen_task1(ctrl)
-    render_qpos(out, f"{C.OUT_DIR}/jump_{tag}_task1_oncommand.mp4", markers_fn=mk, trace=tr)
-    out, mk, tr = gen_task2(ctrl)
-    render_qpos(out, f"{C.OUT_DIR}/jump_{tag}_task2_fixedloc.mp4", markers_fn=mk, trace=tr)
+    out, mk, tr, bx = gen_task1(ctrl)
+    render_qpos(out, f"{C.OUT_DIR}/jump_{tag}_task1_oncommand.mp4", markers_fn=mk, trace=tr, box=bx)
+    out, mk, tr, bx = gen_task2(ctrl)
+    render_qpos(out, f"{C.OUT_DIR}/jump_{tag}_task2_fixedloc.mp4", markers_fn=mk, trace=tr, box=bx)
 
 
 if __name__ == "__main__":

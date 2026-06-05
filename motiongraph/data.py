@@ -21,7 +21,8 @@ def _label_jump(model, q, foot_thr=0.13, takeoff_pad=14, land_pad=12, entry_pad=
     takeoff crouch and forward over the landing. The entry frame is a still-walking
     frame just before the crouch -- a good place to commit to a jump from walking.
     """
-    footz = model.fk_feet(q)[:, :, 2].min(1)
+    feet = model.fk_feet(q)
+    footz = feet[:, :, 2].min(1)
     air = footz > foot_thr
     idx = np.where(air)[0]
     skill = np.zeros(len(q), np.int32)
@@ -35,8 +36,23 @@ def _label_jump(model, q, foot_thr=0.13, takeoff_pad=14, land_pad=12, entry_pad=
             skill[a:b] = 1
             w0, w1 = min(land + 40, len(q) - 1), min(land + 60, len(q) - 1)   # settled post-landing
             continues = w1 > w0 and np.linalg.norm(q[w1, 0:2] - q[w0, 0:2]) / ((w1 - w0) * C.DT) > 0.5
-            jumps.append((max(0, a - entry_pad), takeoff, land, bool(continues)))
+            box = _heuristic_box(q, feet, takeoff, land)                      # box this jump clears
+            jumps.append((max(0, a - entry_pad), takeoff, land, bool(continues)) + box)
     return skill, jumps
+
+
+def _heuristic_box(q, feet, takeoff, land, hx=0.10, hy=0.20, margin=0.85, hmin=0.12, hmax=0.32):
+    """A box the jump clears: centred under the apex, as tall as the foot clearance
+    over its footprint. Returns (apex_frame, half_x, half_y, half_z)."""
+    apex = takeoff + int(q[takeoff:land + 1, 2].argmax())
+    ax = q[apex, 0]
+    lowf = feet[:, :, 2].min(1)
+    over = (np.abs(feet[:, :, 0] - ax) < hx).any(1)
+    over[:takeoff] = False
+    over[land + 1:] = False
+    clr = float(lowf[over].min()) if over.any() else hmin
+    top = float(np.clip(clr * margin, hmin, hmax))
+    return (apex, hx, hy, top / 2)
 
 
 def build_library(clips=None, out=C.LIB_PATH):
@@ -80,7 +96,7 @@ def build_jump_library(out=C.JUMP_LIB_PATH):
     specs = [(C.JUMP_BASE_WALK, C.DATA_DIR, C.TRIM)] + \
             [(c, C.JUMP_DATA_DIR, 0) for c in C.JUMP_CLIPS]
     qpos, clip_id, frame_in_clip, lengths, names = [], [], [], [], []
-    skill, j_entry, j_takeoff, j_land, j_cont = [], [], [], [], []
+    skill, j_entry, j_takeoff, j_land, j_cont, j_apex, j_box = [], [], [], [], [], [], []
     off = 0
     for cid, (name, d, trim) in enumerate(specs):
         if not os.path.exists(os.path.join(d, name + ".csv")):
@@ -90,9 +106,9 @@ def build_jump_library(out=C.JUMP_LIB_PATH):
         qpos.append(q); skill.append(sk)
         clip_id.append(np.full(len(q), cid)); frame_in_clip.append(np.arange(len(q)))
         lengths.append(len(q)); names.append(name)
-        for e, t, l, cont in jumps:                  # store as global frame indices
+        for e, t, l, cont, apex, hx, hy, hz in jumps:    # store as global frame indices
             j_entry.append(off + e); j_takeoff.append(off + t); j_land.append(off + l)
-            j_cont.append(cont)
+            j_cont.append(cont); j_apex.append(off + apex); j_box.append([hx, hy, hz])
         off += len(q)
         print(f"  [{cid}] {name}: {len(q)} frames, {len(jumps)} jump(s)"
               f"{' (continues)' if jumps and jumps[0][3] else ' (stops)' if jumps else ''}")
@@ -112,6 +128,8 @@ def build_jump_library(out=C.JUMP_LIB_PATH):
         jump_takeoff=np.array(j_takeoff, np.int32),
         jump_land=np.array(j_land, np.int32),
         jump_continues=np.array(j_cont, bool),
+        jump_apex=np.array(j_apex, np.int32),
+        jump_box=np.array(j_box, np.float32).reshape(-1, 3),   # per-jump box half-extents
     )
     print(f"Saved jump library: {len(qpos)} frames, {int(np.concatenate(skill).sum())} "
           f"jump frames, {len(j_entry)} jumps -> {out}")
