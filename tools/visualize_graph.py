@@ -85,19 +85,18 @@ def build(which="jump"):
     ex, ey = _edge_xy(P, ww)
     fig.add_trace(go.Scattergl(x=ex, y=ey, mode="lines", hoverinfo="skip",
                   line=dict(color="rgba(160,160,160,0.18)", width=1), name="walk-walk edges"), 1, 2)
-    # skill-transition edges, highlighted
-    for pair, col, nm in [((0, 1), "darkorange", "walk->jump"), ((1, 0), "green", "jump->walk"),
-                          ((1, 1), "red", "jump->jump")]:
-        es = g.skill_edges.get(pair, [])
-        ex, ey = _edge_xy(P, [(i, j) for i, j, _ in es])
-        if ex:
-            fig.add_trace(go.Scattergl(x=ex, y=ey, mode="lines",
-                          line=dict(color=col, width=1.6), name=nm), 1, 2)
-    # top-5 walk->jump edges extra thick (best take-off points)
-    ex, ey = _edge_xy(P, [(i, j) for i, j, _ in g.skill_edges.get((0, 1), [])[:5]])
+    # jump->walk graph edges (how a jump rejoins walking)
+    ex, ey = _edge_xy(P, [(i, j) for i, j, _ in g.skill_edges.get((1, 0), [])])
     if ex:
         fig.add_trace(go.Scattergl(x=ex, y=ey, mode="lines",
-                      line=dict(color="darkorange", width=4), name="top-5 walk->jump"), 1, 2)
+                      line=dict(color="green", width=1.6), name="jump->walk edges"), 1, 2)
+    # jump ENTRY points: pre-take-off run-up frames -- the only places to enter a jump
+    je = getattr(g, "jump_enter", np.array([], int))
+    if len(je):
+        fig.add_trace(go.Scattergl(x=P[je, 0], y=P[je, 1], mode="markers",
+                      marker=dict(size=11, color="lime", symbol="diamond",
+                                  line=dict(width=1.2, color="black")),
+                      name="jump entry (pre-take-off)"), 1, 2)
     # nodes coloured by skill -- drawn before the animated traversal
     for s, col, nm, sz in [(0, "steelblue", "walk frames", 3), (1, "orangered", "jump frames", 7)]:
         m = skill == s
