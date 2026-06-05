@@ -20,7 +20,7 @@ from motiongraph.kinematics import transform_qpos, alignment_to, ease_to_termina
 from motiongraph.cleanup import cleanup
 from motiongraph.render import trace_labels
 
-START = 1500   # a steady walking frame in walk1_subject2
+START = 2640   # steady forward walk, arms down (walk1_subject5)
 
 
 def _cmd_marker(out, command):

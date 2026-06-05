@@ -57,14 +57,16 @@ available, as here).
 - **Format:** one CSV per clip, 30 FPS. Each row is 36 floats:
   `root (x, y, z, qx, qy, qz, qw)` followed by 29 joint angles in canonical Unitree
   order (`left_hip_pitch … right_wrist_yaw`).
-- **Clips used:** a **single** continuous walking sequence, `walk1_subject2`
-  (~258 s, 7750 frames after trimming). Using one clip keeps the motion distribution
-  **unimodal** — one subject, one gait — so matching/graph never hop between styles or
-  speeds (the multi-clip set mixed walk/run/sprint and 6 subjects). `download_data.sh`
-  still fetches the wider set; `config.LOCO_CLIPS` selects what the library is built
-  from. Because one clip tops out at ~1.3 m/s, the demo commands are walking-speed.
-- **T-pose trim:** every clip begins and ends in a T-pose that blends into the motion
-  over ~1.5 s, so `data.py` drops `TRIM = 45` frames from each end.
+- **Clip used:** a **single** continuous walking sequence, **`walk1_subject5`**
+  (~258 s, 7750 frames after trimming) — the walk motion `~/Projects/CAMDM` uses as its
+  main `walk`; it has a natural **arms-down** posture (`walk1_subject2` walks with the
+  hands raised). One clip keeps the distribution **unimodal** (one subject, one gait) so
+  matching/graph never hop between styles/speeds. `config.LOCO_CLIPS` selects it; demo
+  commands are walking-speed (≤ ~1.3 m/s).
+- **T-pose trim (applied).** Every LAFAN1 clip begins and ends in a **T-pose** (arms out)
+  that blends into the motion over ~1.5 s. `data.py:_load_clip` **drops the first/last
+  `TRIM = 45` frames of every clip**, so the T-pose never appears in the library or any
+  generated motion.
 - **Robot model:** the menagerie `unitree_g1` (`g1_29dof_rev_1_0`) is vendored under
   `assets/unitree_g1/`. Its joint order matches the CSV columns exactly; only the
   root quaternion is reordered (dataset `xyzw` → MuJoCo `wxyz`).
@@ -229,7 +231,7 @@ algorithms get a jump task — `run_jump.py both` renders four clips
 
 - **Data (from `~/Projects/CAMDM`):** G1-retargeted LAFAN1 `walk_jump_walk*` clips —
   short straight sequences that walk, jump, and keep walking. `data/g1_jump/` holds
-  them; `data.py:build_jump_library()` concatenates the walk base (`walk1_subject2`)
+  them; `data.py:build_jump_library()` concatenates the walk base (`walk1_subject5`)
   with the jump clips into `data/motion_lib_jump.npz`.
 - **Skill labels:** each frame is auto-labelled `walk` / `jump` — a jump is the
   airborne phase (both feet off the floor) padded over the take-off crouch and landing.

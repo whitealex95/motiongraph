@@ -22,7 +22,7 @@ from motiongraph.render import trace_labels, render_qpos
 from motiongraph.kinematics import transform_qpos, alignment_to, rotz
 from motiongraph.g1_model import quat_wxyz_yaw
 
-START, SPEED, SECONDS = 1500, 1.0, 13.0
+START, SPEED, SECONDS = 2640, 1.0, 13.0
 CMD = SpeedCommand([(0.0, SPEED, 0.0)])
 
 
@@ -171,8 +171,9 @@ def _plan_jump(g, start_frame, cur_xy, cur_yaw, box, seconds=6.0):
     """Beam-plan a precise in-between to a jump's pre-take-off entry placed so the apex
     lands on `box`, then play the jump. Returns the world segment + end state + entry."""
     entry, land = g.best_jump_entry(int(start_frame))
-    fwd = float(g.qpos[g.jump_apex_of[entry], 0] - g.qpos[entry, 0])
-    world_target = box - np.array([fwd, 0.0])
+    apex = g.jump_apex_of[entry]
+    disp = rotz(-g.yaw[entry]) @ (g.qpos[apex, 0:2] - g.qpos[entry, 0:2])   # entry->apex, entry-local
+    world_target = box - disp                                              # so the apex lands on box
     local_target = rotz(-cur_yaw) @ (world_target - cur_xy)                # plan in its own frame
     local = g.plan_to(CMD, seconds, int(start_frame), local_target, float(-cur_yaw), int(entry))
     approach = _place(local, cur_xy, cur_yaw)

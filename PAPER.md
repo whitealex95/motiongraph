@@ -33,10 +33,14 @@ Contributions / things demonstrated:
 - **Source.** LAFAN1 (Ubisoft) retargeted to Unitree robots; we use the public mirror
   `lvhaidong/LAFAN1_Retargeting_Dataset` (G1, 30 FPS). Retargeting was IK +
   interaction-mesh, **kinematic only** (no dynamics), so playback is likewise kinematic.
-- **Locomotion library.** A *single* clip `walk1_subject2` (~258 s, 7750 frames after
-  trimming) → a **unimodal** distribution (one subject, one gait) so matching/graph never
-  hop between styles. First/last 45 frames are dropped (T-pose blend-in).
-- **Jump library.** `walk1_subject2` + three G1-retargeted `walk_jump_walk*` clips (from
+- **Locomotion library.** A *single* clip **`walk1_subject5`** (~258 s, 7750 frames after
+  trimming) — the walk motion CAMDM uses as its main `walk`, with a natural **arms-down**
+  posture (`walk1_subject2`, used earlier, walks with the hands raised). One clip →
+  **unimodal** distribution (one subject, one gait) so matching/graph never hop styles.
+- **T-pose trimming (applied).** Every LAFAN1 clip starts/ends in a T-pose (arms out) that
+  blends in over ~1.5 s; `data.py:_load_clip` drops the first/last `TRIM = 45` frames of
+  every clip, so the T-pose never enters the library or any generated motion.
+- **Jump library.** `walk1_subject5` + three G1-retargeted `walk_jump_walk*` clips (from
   `~/Projects/CAMDM`): short, nearly straight `walk → jump → walk` sequences. Concatenated
   into `data/motion_lib_jump.npz` (8290 frames).
 - **Format.** Per frame, CSV row = 36 floats: root `(x,y,z, qx,qy,qz,qw)` (quat **xyzw**)

@@ -13,7 +13,7 @@ DT = 1.0 / FPS
 # Jump skill: a walk base clip + CAMDM walk->jump->walk clips (G1-retargeted LAFAN1).
 JUMP_DATA_DIR = os.path.join(ROOT, "data", "g1_jump")
 JUMP_LIB_PATH = os.path.join(ROOT, "data", "motion_lib_jump.npz")
-JUMP_BASE_WALK = "walk1_subject2"                       # rich locomotion base (from DATA_DIR)
+JUMP_BASE_WALK = "walk1_subject5"                       # CAMDM's main walk (arms down)
 JUMP_CLIPS = ["walk_jump_walk", "walk_jump_walk2", "walk_jump_stop"]   # from JUMP_DATA_DIR
 SKILLS = ["walk", "jump"]
 
@@ -44,11 +44,13 @@ MM_SEARCH_INTERVAL = 15        # motion-matching search interval (~0.5 s; fewer 
 BLEND_FRAMES = 12              # cross-fade length at a jump/transition (~0.4 s)
 SMOOTH_WINDOW = 9              # Savitzky-Golay window (frames) for root de-jitter
 
-# Trim this many frames from each clip's start/end (LAFAN1 clips begin/end in a
-# T-pose that blends into the motion over ~1.5 s).
+# Every LAFAN1 clip begins and ends in a T-pose (arms out) that blends into the motion
+# over ~1.5 s. We DROP the first/last TRIM frames of every clip (see data.py:_load_clip)
+# so the T-pose never appears in the library or the generated motion.
 TRIM = 45
 
-# A SINGLE continuous walking sequence -> a unimodal motion distribution (one
-# subject, one gait), so matching/graph never hop between styles or speeds.
-# walk1_subject2 is ~258 s with lots of turning and walk speeds up to ~1.3 m/s.
-LOCO_CLIPS = ["walk1_subject2"]
+# A SINGLE continuous walking sequence -> a unimodal motion distribution (one subject,
+# one gait), so matching/graph never hop between styles or speeds. We use
+# walk1_subject5 (the walk motion CAMDM uses as its main `walk`): natural arms-down
+# posture (walk1_subject2 walks with the hands raised). ~258 s, speeds up to ~1.3 m/s.
+LOCO_CLIPS = ["walk1_subject5"]
