@@ -17,9 +17,9 @@ display.
   specified terminal state (position + heading + pose) at a fixed time. The red
   sphere marks the commanded direction; the green sphere marks the terminal target.
 
-There is also a **jump skill** (§3b): `jump_task1_oncommand.mp4` (walk, then jump on a
-trigger) and `jump_task2_fixedloc.mp4` (walk, then land the jump apex at a fixed spot —
-green marker — by optimizing the trigger over the graph).
+There is also a **jump skill** (§3b), in both algorithms: `jump_{mm,mg}_task1_oncommand.mp4`
+(walk, then jump on a trigger) and `jump_{mm,mg}_task2_fixedloc.mp4` (walk, then land the
+jump apex at a fixed spot — green marker — by optimizing the trigger).
 
 ---
 
@@ -221,9 +221,11 @@ with a banner naming the edge taken (`clipA #i → clipB #j`).
 
 ---
 
-## 3b. Jump skill: walk → jump (`run_jump.py`, jump-labelled motion graph)
+## 3b. Jump skill: walk → jump (`run_jump.py`, motion matching **and** motion graph)
 
-Locomotion that breaks into a **jump**, built by adding a *skill* to the motion graph.
+Locomotion that breaks into a **jump**, by adding a *skill* to the library. Both
+algorithms get a jump task — `run_jump.py both` renders four clips
+(`jump_{mm,mg}_task{1,2}_*.mp4`).
 
 - **Data (from `~/Projects/CAMDM`):** G1-retargeted LAFAN1 `walk_jump_walk*` clips —
   short straight sequences that walk, jump, and keep walking. `data/g1_jump/` holds
@@ -233,23 +235,30 @@ Locomotion that breaks into a **jump**, built by adding a *skill* to the motion 
   airborne phase (both feet off the floor) padded over the take-off crouch and landing.
   Per jump we record its `entry` (a walking run-up frame), `takeoff`, `land`, and a
   `continues` flag (does it keep walking after landing).
-- **Skill-aware graph (`motion_graph.py`):** every transition edge is tagged
-  `(skill_from → skill_to)`. `top_skill_edges(k)` returns the best edges per pair
-  (e.g. the **top-5 walk→jump** take-off transitions); `best_jump_entry(cur)` returns
-  the jump run-up whose pose best matches the current walk, for a smooth take-off.
+- **Entering a jump only before take-off (`jumps.py`):** `jump_entries()` returns the
+  pre-take-off run-up frames (`entry … takeoff`) and their landing frame. This is the
+  **only** way into a jump for either algorithm — you can never cut into the airborne
+  phase. Normal locomotion search/transitions also exclude jump frames, so a jump
+  happens only when triggered.
 
-**task1 — jump on command.** Walk forward at 1 m/s; at the trigger time, transition to
-`best_jump_entry` and *ride the straight walk→jump→walk clip through landing*, then keep
-walking. The goal is the **jump action itself**, not a target position. (The jump clips
-are nearly straight, so the path stays straight without returning to the curvier base.)
+**Motion matching** (`MotionMatcher.generate(..., jump_at=…)`): walks by nearest-neighbour
+feature search; at the trigger it matches `best_jump_entry` (the pre-take-off run-up whose
+features best match the current frame) and rides the clip through landing. **Motion graph**
+(`MotionGraph.follow_with_jump`): walks by greedy edge selection and enters the jump the
+same way. (The graph also tags every edge `(skill_from → skill_to)`; `top_skill_edges(k)`
+returns the best per pair, e.g. **top-5 walk→jump**.)
 
-**task2 — jump at a fixed location (graph optimization).** Same 1 m/s walk, but the jump
-apex must land at a fixed `x`. The trigger time is chosen by a **search over the graph**
-(try candidate trigger frames, measure the resulting apex `x`, keep the best) — a small
-motion-graph optimization that hits the target within ~0.05 m.
+**task1 — jump on command.** Walk forward at 1 m/s; at the trigger time enter the jump
+run-up and ride the straight walk→jump→walk clip through landing, then keep walking. The
+goal is the **jump action itself**, not a target position.
+
+**task2 — jump at a fixed location (optimization).** Same 1 m/s walk, but the jump apex
+must land at a fixed `x`. The trigger time is chosen by a **search over candidates** (try
+trigger frames, measure the resulting apex `x`, keep the best) — hits the target within
+~0.1 m. Motion matching keeps the path noticeably straighter than the graph.
 
 ```bash
-python run_jump.py both          # -> outputs/jump_task1_oncommand.mp4, jump_task2_fixedloc.mp4
+python run_jump.py both          # -> outputs/jump_{mm,mg}_task{1,2}_*.mp4
 python -m tools.visualize_graph jump   # -> outputs/motion_graph_jump.html
 ```
 
@@ -277,6 +286,7 @@ motiongraph/
   motion_graph.py       transition graph + greedy follower + beam planner + jump skill
   footlock.py           foot-lock IK (sole-sphere pin via damped least squares)
   cleanup.py            post-process: root de-jitter -> foot-lock
+  jumps.py              shared pre-take-off jump-entry index (MM + MG)
 data/g1_jump/           CAMDM walk->jump->walk clips (for the jump skill)
 tools/diagnose.py       quality metrics + time-axis plots (root speed, foot slip)
 tools/visualize_graph.py interactive web view: 3-D motion + 2-D graph [walk|jump] (HTML)

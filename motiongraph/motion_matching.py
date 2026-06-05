@@ -21,30 +21,47 @@ class MotionMatcher:
         self.fic, self.lengths = lib["frame_in_clip"], lib["lengths"]
         self.clip_id = lib["clip_id"]
         self.jump_margin = jump_margin
-        # search only upright frames so jumps never land in crouch/getup poses
-        self.valid = np.where(lib["qpos"][:, 2] >= min_z)[0]
+        self.skill = lib["skill"] if "skill" in lib else np.zeros(len(self.qpos), np.int32)
+        # normal search: upright WALK frames only, so locomotion never produces a jump
+        # (a jump happens only when triggered, via best_jump_entry).
+        self.valid = np.where((lib["qpos"][:, 2] >= min_z) & (self.skill == 0))[0]
         self.tree = cKDTree(self.feat[self.valid])
+        from .jumps import jump_entries
+        self.jump_enter, self.jump_land_of = jump_entries(lib)   # pre-take-off run-up frames
 
     def _is_clip_end(self, i):
         return self.fic[i] >= self.lengths[self.clip_id[i]] - 1
+
+    def best_jump_entry(self, cur):
+        """Pre-take-off run-up frame whose features best match the current frame, so the
+        match jumps into the run-up (not mid-air) with a smooth take-off."""
+        if len(self.jump_enter) == 0:
+            return None
+        d = np.linalg.norm(self.feat[self.jump_enter] - self.feat[cur], axis=1)
+        f = int(self.jump_enter[d.argmin()])
+        return f, self.jump_land_of[f]
 
     def _qstd(self, traj_block, cur):
         """Standardized query: command trajectory + current frame's pose features."""
         query = np.concatenate([traj_block, self.raw[cur, F.TRAJ_DIM:]])
         return ((query - self.mean) / self.std) * self.w
 
-    def generate(self, command, seconds, start_frame=0, traj_fn=None, return_trace=False):
+    def generate(self, command, seconds, start_frame=0, traj_fn=None,
+                 jump_at=None, return_trace=False):
         """Roll out for `seconds`; traj_fn(t,xy,yaw)->block overrides the command query.
 
         Hysteresis: at a search we only jump to the nearest neighbour if it is
         clearly better (by jump_margin) than simply continuing the current clip.
         This keeps the character on long continuous fragments -> less jitter/skating.
+        If jump_at is given, at that time the match is forced into the best pre-take-off
+        jump run-up and the clip is then ridden through landing (a JUMP on command).
         With return_trace, also return the per-frame library index sequence.
         """
         n = int(seconds * C.FPS)
         cur = start_frame
         dyaw, pivot, offset = -self.yaw[cur], self.xy[cur].copy(), np.zeros(2)  # start at origin, +x
         out, frozen, blend_left, tframe = [], None, 0, []
+        locked, did = 0, False
         for step in range(n):
             t = step * C.DT
             world = transform_qpos(self.qpos[cur], dyaw, pivot, offset)[0]
@@ -53,6 +70,21 @@ class MotionMatcher:
                 world = blend_qpos(frozen, world, 1 - blend_left / C.BLEND_FRAMES)
                 blend_left -= 1
             out.append(world); tframe.append(cur)
+
+            if jump_at is not None and not did and step >= int(jump_at * C.FPS) and locked == 0:
+                je = self.best_jump_entry(cur)              # match into the pre-take-off run-up
+                if je:
+                    entry, land = je
+                    dyaw, pivot, offset = alignment_to(self.xy[entry], self.yaw[entry], cwx, cwy)
+                    frozen, blend_left = world.copy(), C.BLEND_FRAMES
+                    to_end = self.lengths[self.clip_id[entry]] - 1 - self.fic[entry]
+                    cur, locked, did = entry, min(to_end, n - step), True
+                    continue
+            if locked > 0:                                  # ride the jump clip through landing
+                if not self._is_clip_end(cur):
+                    cur += 1
+                locked -= 1
+                continue
 
             if step > 0 and (step % C.MM_SEARCH_INTERVAL == 0 or self._is_clip_end(cur)):
                 block = traj_fn(t, cwx, cwy) if traj_fn else command.trajectory(cwx, cwy, t)

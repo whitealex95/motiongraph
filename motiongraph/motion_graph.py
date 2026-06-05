@@ -74,7 +74,9 @@ class MotionGraph:
     def _build_transitions(self, n_neighbors, src_stride, tgt_stride, tau_factor, min_z):
         P = self.P
         upright = self.qpos[:, 2] >= min_z
-        valid = np.where(upright & ~self._clip_end_mask())[0][::tgt_stride]   # transition targets
+        # normal transitions only target WALK frames; a jump is entered only via
+        # best_jump_entry (its pre-take-off run-up), never mid-air.
+        valid = np.where(upright & ~self._clip_end_mask() & (self.skill == 0))[0][::tgt_stride]
         tree = cKDTree(P[valid])
         src = np.array([i for i in range(0, len(self.qpos), src_stride) if upright[i]])
         D, NN = tree.query(P[src], k=n_neighbors + 1)                         # batched, low-dim
@@ -104,20 +106,9 @@ class MotionGraph:
                 self.skill_edges.setdefault((int(self.skill[i]), int(self.skill[j])), []).append((i, j, d))
         for k in self.skill_edges:
             self.skill_edges[k].sort(key=lambda e: e[2])
-        # enterable jump frames: the walking run-up [entry .. takeoff-4] of each jump
-        # that keeps walking after landing (so the character resumes locomotion).
-        self.jump_enter, self.jump_land_of = [], {}
-        if "jump_entry" in self.lib:
-            cont = self.lib["jump_continues"] if "jump_continues" in self.lib \
-                else np.ones(len(self.lib["jump_entry"]), bool)
-            for e, t, l, c in zip(self.lib["jump_entry"], self.lib["jump_takeoff"],
-                                  self.lib["jump_land"], cont):
-                if not c:
-                    continue
-                for f in range(int(e), int(t) - 3):
-                    self.jump_enter.append(f)
-                    self.jump_land_of[f] = int(l)
-        self.jump_enter = np.array(self.jump_enter, np.int32)
+        # pre-take-off run-up frames -- the only valid places to enter a jump
+        from .jumps import jump_entries
+        self.jump_enter, self.jump_land_of = jump_entries(self.lib)
 
     def top_skill_edges(self, k=5):
         """Top-k (best-blend) transition edges for each skill pair, e.g. walk->jump."""
