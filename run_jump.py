@@ -24,10 +24,12 @@ START, SPEED, SECONDS = 1500, 1.0, 13.0
 CMD = SpeedCommand([(0.0, SPEED, 0.0)])
 
 
-def _jump(ctrl, jump_at, trace=False):
-    """Generate a walk-then-jump roll-out from either controller; returns out[, tframe]."""
+def _jump(ctrl, jump_at, trace=False, target_xy=None):
+    """Generate a walk-then-jump roll-out from either controller; returns out[, tframe].
+    target_xy steers the motion-graph walk toward the box (so it converges to the box y)."""
     if isinstance(ctrl, MotionGraph):
-        r = ctrl.follow_with_jump(CMD, SECONDS, START, jump_at=jump_at, return_trace=trace)
+        r = ctrl.follow_with_jump(CMD, SECONDS, START, jump_at=jump_at,
+                                  target_xy=target_xy, return_trace=trace)
     else:
         r = ctrl.generate(CMD, SECONDS, START, jump_at=jump_at, return_trace=trace)
     return (r[0], r[1]) if trace else r
@@ -52,10 +54,10 @@ def _rz(yaw):
     return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
 
 
-def _box(ctrl, out, tframe, x=None, label=None):
-    """A box (half-extents from the used jump clip) placed at the jump apex -- or at a
-    predefined x. It sits on the ground, oriented along the jump, and the character
-    jumps over it."""
+def _box(ctrl, out, tframe, pos=None, label=None):
+    """A box (half-extents from the used jump clip), at a predefined (x, y) -- or at the
+    jump apex. It sits on the ground, oriented along the jump (when free), and the
+    character jumps over it."""
     lib = ctrl.lib
     al = int(out[:, 2].argmax())
     cid = lib["clip_id"][int(tframe[al])]
@@ -65,10 +67,13 @@ def _box(ctrl, out, tframe, x=None, label=None):
             half = lib["jump_box"][k]
             break
     half = [float(h) for h in half]
-    a, b = max(0, al - 5), min(len(out) - 1, al + 5)
-    yaw = float(np.arctan2(out[b, 1] - out[a, 1], out[b, 0] - out[a, 0]))   # jump direction
-    bx = float(out[al, 0]) if x is None else x
-    return dict(pos=[bx, float(out[al, 1]), half[2]], half=half, mat=_rz(yaw),
+    if pos is None:                                          # free: at the apex, along the jump
+        a, b = max(0, al - 5), min(len(out) - 1, al + 5)
+        yaw = float(np.arctan2(out[b, 1] - out[a, 1], out[b, 0] - out[a, 0]))
+        bxy = [float(out[al, 0]), float(out[al, 1])]
+    else:                                                    # predefined (x, y), axis-aligned (+x)
+        yaw, bxy = 0.0, [float(pos[0]), float(pos[1])]
+    return dict(pos=[bxy[0], bxy[1], half[2]], half=half, mat=_rz(yaw),
                 rgba=[0.96, 0.45, 0.10, 1.0], label=label)
 
 
@@ -79,18 +84,21 @@ def gen_task1(ctrl, clean=True):
     return (cleanup(out) if clean else out), _marker(out), trace, box
 
 
-def gen_task2(ctrl, clean=True, target_x=5.0):
+def gen_task2(ctrl, clean=True, target=(5.0, 0.0)):
+    target = np.asarray(target, float)                       # PREDEFINED box at (x, y=0)
     best, err, bt = None, 1e9, None
     for ja in np.linspace(2.0, SECONDS - 4.0, 28):           # search the trigger time
-        o = _jump(ctrl, float(ja))
-        e = abs(float(o[o[:, 2].argmax(), 0]) - target_x)
+        o = _jump(ctrl, float(ja), target_xy=target)         # MG steers toward the box
+        a = int(o[:, 2].argmax())
+        e = float(np.linalg.norm(o[a, 0:2] - target))        # apex distance to the box (x AND y)
         if e < err:
             best, err, bt = o, e, float(ja)
-    print(f"  task2: jump_at={bt:.2f}s -> apex_x={best[best[:,2].argmax(),0]:.2f} (target {target_x}, err {err:.2f})")
-    out, tf = _jump(ctrl, bt, trace=True)
+    a = int(best[:, 2].argmax())
+    print(f"  task2: jump_at={bt:.2f}s -> apex xy={best[a,:2].round(2)} (box {target}, dist {err:.2f})")
+    out, tf = _jump(ctrl, bt, trace=True, target_xy=target)
     trace = trace_labels(tf, ctrl.lib)
-    # the box is PREDEFINED at target_x: the character walks to it, then jumps over it.
-    box = _box(ctrl, out, tf, x=target_x, label=f"PREDEFINED BOX  x={target_x:.1f}m")
+    # box is PREDEFINED at a fixed (x, y): the character walks to it, then jumps over it.
+    box = _box(ctrl, out, tf, pos=target, label=f"PREDEFINED BOX  ({target[0]:.1f}, {target[1]:.1f})")
     return (cleanup(out) if clean else out), _marker(out), trace, box       # box = the target
 
 

@@ -252,14 +252,16 @@ returns the best per pair, e.g. **top-5 walk→jump**.)
 run-up and ride the straight walk→jump→walk clip through landing, then keep walking. The
 goal is the **jump action itself**, not a target position.
 
-**task2 — jump over a predefined box.** A box is **predefined** at a fixed `x` (a
-heuristic size from the jump clip — as tall as the foot clearance over its footprint, so
-the character clears it; stored per-jump as `jump_box` in the library). The character
-walks toward the box and the jump trigger is chosen by a **search over candidates** so the
-apex lands on the box (within ~0.1 m). The box is rendered the whole clip (before, during
-and after the jump) with a `PREDEFINED BOX x=…` label, making it explicit — especially for
-the graph — that the obstacle position was known in advance. Motion matching keeps the
-path noticeably straighter than the graph (so its box sits near `y≈0`).
+**task2 — jump over a predefined box.** A box is **predefined** at a fixed `(x, y)` =
+`(5, 0)` (a heuristic size from the jump clip — as tall as the foot clearance over its
+footprint, so the character clears it; stored per-jump as `jump_box`). The character walks
+to the box and the jump trigger is chosen by a **search** minimizing the apex's 2-D
+distance to the box; the apex lands on it within ~0.2 m. The motion-graph walk **steers
+toward the box point** (`target_xy`) so it converges to the box's `y` (without that, the
+single-clip greedy drifts laterally and would jump *beside* the box); motion matching
+reaches `y≈0` on its own. The box is rendered the whole clip (before, during and after the
+jump), oriented along the jump, with a `PREDEFINED BOX (x, y)` label — making it explicit
+that the obstacle position was known in advance.
 
 ```bash
 python run_jump.py both          # -> outputs/jump_{mm,mg}_task{1,2}_*.mp4

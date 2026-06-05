@@ -217,11 +217,12 @@ class MotionGraph:
 
     # --- jump skill: walk, then perform a jump on a trigger ----------------
     def follow_with_jump(self, command, seconds, start_frame=0, jump_at=4.0,
-                         land_pad=35, straighten=0.6, return_trace=False):
+                         land_pad=35, straighten=0.6, target_xy=None, return_trace=False):
         """Walk forward; at t=`jump_at` s transition to the best-matching jump run-up
-        and play the jump through landing, then resume walking. The walk heading is
-        kept near the start heading (+x) by `straighten` so the path stays roughly
-        straight while the jump clip carries the take-off, flight and forward travel."""
+        and play the jump through landing, then resume walking. If target_xy is given the
+        walk steers toward that point (so it converges to the box's y), otherwise it just
+        keeps near the start heading via `straighten`. The jump clip carries the take-off,
+        flight and forward travel."""
         n = int(seconds * C.FPS)
         cur = start_frame
         align = (-self.yaw[cur], self.xy[cur].copy(), np.zeros(2))
@@ -256,8 +257,13 @@ class MotionGraph:
             else:
                 decide = (step % C.SEARCH_INTERVAL == 0 and step > 0) or self._is_end(cur)
                 if decide:
-                    spd = command.state(step * C.DT)[0]             # forward, heading nudged
-                    h = cwy + straighten * ((ref - cwy + np.pi) % (2 * np.pi) - np.pi)  # toward +x
+                    spd = command.state(step * C.DT)[0]
+                    if target_xy is not None:                       # steer toward the box point
+                        d = np.asarray(target_xy) - cwx             # (-> converges to its y)
+                        ref = float(np.arctan2(d[1], d[0]))
+                    else:                                           # else steer back to the y=0 line
+                        ref = float(np.clip(np.arctan2(-1.6 * cwx[1], 1.0), -0.9, 0.9))
+                    h = cwy + straighten * ((ref - cwy + np.pi) % (2 * np.pi) - np.pi)
                     want = spd * np.array([np.cos(h), np.sin(h)])
                     best, best_tr = self._greedy_choose(cur, cwy, want)
                     if best_tr:
