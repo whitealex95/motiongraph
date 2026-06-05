@@ -107,7 +107,8 @@ def render_qpos(qpos_seq, out_path, markers_fn=None, trace=None, box=None, fps=C
         cam.lookat[:] = [q[0], q[1], 0.8]                 # follow root
         renderer.update_scene(data, cam)
         if box is not None:                               # the predefined obstacle, always present
-            _add_box(renderer.scene, box["pos"], box["half"], box.get("rgba", [0.6, 0.4, 0.2, 0.9]))
+            _add_box(renderer.scene, box["pos"], box["half"],
+                     box.get("rgba", [0.6, 0.4, 0.2, 0.9]), box.get("mat"))
         if markers_fn is not None:
             for pos, size, rgba in markers_fn(t):
                 _add_sphere(renderer.scene, pos, size, rgba)
@@ -133,12 +134,13 @@ def _box_label(img, text):
     return np.asarray(im)
 
 
-def _add_box(scene, pos, half, rgba):
+def _add_box(scene, pos, half, rgba, mat=None):
     if scene.ngeom >= scene.maxgeom:
         return
     g = scene.geoms[scene.ngeom]
+    m = np.eye(3).ravel() if mat is None else np.asarray(mat, np.float64).ravel()
     mujoco.mjv_initGeom(g, mujoco.mjtGeom.mjGEOM_BOX, np.asarray(half, np.float64),
-                        np.asarray(pos, np.float64), np.eye(3).ravel(), np.asarray(rgba, np.float32))
+                        np.asarray(pos, np.float64), m, np.asarray(rgba, np.float32))
     scene.ngeom += 1
 
 

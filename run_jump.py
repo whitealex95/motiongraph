@@ -47,9 +47,15 @@ def _marker(out, target_x=None):
     return fn
 
 
+def _rz(yaw):
+    c, s = np.cos(yaw), np.sin(yaw)
+    return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+
+
 def _box(ctrl, out, tframe, x=None, label=None):
     """A box (half-extents from the used jump clip) placed at the jump apex -- or at a
-    predefined x. It sits on the ground and the character jumps over it."""
+    predefined x. It sits on the ground, oriented along the jump, and the character
+    jumps over it."""
     lib = ctrl.lib
     al = int(out[:, 2].argmax())
     cid = lib["clip_id"][int(tframe[al])]
@@ -59,9 +65,11 @@ def _box(ctrl, out, tframe, x=None, label=None):
             half = lib["jump_box"][k]
             break
     half = [float(h) for h in half]
+    a, b = max(0, al - 5), min(len(out) - 1, al + 5)
+    yaw = float(np.arctan2(out[b, 1] - out[a, 1], out[b, 0] - out[a, 0]))   # jump direction
     bx = float(out[al, 0]) if x is None else x
-    return dict(pos=[bx, float(out[al, 1]), half[2]], half=half,
-                rgba=[0.62, 0.42, 0.20, 0.92], label=label)
+    return dict(pos=[bx, float(out[al, 1]), half[2]], half=half, mat=_rz(yaw),
+                rgba=[0.96, 0.45, 0.10, 1.0], label=label)
 
 
 def gen_task1(ctrl, clean=True):
@@ -86,6 +94,22 @@ def gen_task2(ctrl, clean=True, target_x=5.0):
     return (cleanup(out) if clean else out), _marker(out), trace, box       # box = the target
 
 
+def render_raw(lib):
+    """Render the ORIGINAL jump clips with their predefined box (a sanity view)."""
+    for k, (cid_name) in enumerate(["walk_jump_walk", "walk_jump_walk2"]):
+        cid = list(lib["clip_names"]).index(cid_name)
+        gi = np.where(lib["clip_id"] == cid)[0]
+        q = lib["qpos"][gi]
+        apex = int(lib["jump_apex"][k] - gi[0])
+        half = [float(h) for h in lib["jump_box"][k]]
+        a, b = max(0, apex - 5), min(len(q) - 1, apex + 5)
+        yaw = float(np.arctan2(q[b, 1] - q[a, 1], q[b, 0] - q[a, 0]))
+        box = dict(pos=[float(q[apex, 0]), float(q[apex, 1]), half[2]], half=half,
+                   mat=_rz(yaw), rgba=[0.96, 0.45, 0.10, 1.0], label=f"box {2*half[0]:.2f}x{2*half[1]:.2f}x{2*half[2]:.2f}m")
+        seg = q[max(0, apex - 45):apex + 55]
+        render_qpos(seg, f"{C.OUT_DIR}/jump_raw_{cid_name}.mp4", box=box)
+
+
 def run(tag, ctrl):
     out, mk, tr, bx = gen_task1(ctrl)
     render_qpos(out, f"{C.OUT_DIR}/jump_{tag}_task1_oncommand.mp4", markers_fn=mk, trace=tr, box=bx)
@@ -96,6 +120,8 @@ def run(tag, ctrl):
 if __name__ == "__main__":
     which = sys.argv[1] if len(sys.argv) > 1 else "both"
     lib = load_library(C.JUMP_LIB_PATH)
+    if which in ("raw", "both"):
+        render_raw(lib)
     if which in ("mg", "both"):
         run("mg", MotionGraph(lib))
     if which in ("mm", "both"):

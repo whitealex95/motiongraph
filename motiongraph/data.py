@@ -41,9 +41,10 @@ def _label_jump(model, q, foot_thr=0.13, takeoff_pad=14, land_pad=12, entry_pad=
     return skill, jumps
 
 
-def _heuristic_box(q, feet, takeoff, land, hx=0.10, hy=0.20, margin=0.85, hmin=0.12, hmax=0.32):
-    """A box the jump clears: centred under the apex, as tall as the foot clearance
-    over its footprint. Returns (apex_frame, half_x, half_y, half_z)."""
+def _heuristic_box(q, feet, takeoff, land, hx=0.13, hy=0.28, margin=0.92, hmin=0.13, hmax=0.24):
+    """A box the jump clears: centred under the apex, half-width hx forward / hy laterally,
+    as tall as the foot clearance over its forward footprint. Returns
+    (apex_frame, half_x, half_y, half_z)."""
     apex = takeoff + int(q[takeoff:land + 1, 2].argmax())
     ax = q[apex, 0]
     lowf = feet[:, :, 2].min(1)
