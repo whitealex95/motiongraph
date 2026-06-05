@@ -280,18 +280,19 @@ class MotionGraph:
 
     # --- waypoint route with world-anchored jumps -------------------------
     def follow_route(self, waypoints, start_frame=0, speed=1.0, reach=1.0,
-                     straighten=0.7, land_pad=18, max_seconds=45, return_trace=False):
+                     straighten=0.7, land_pad=18, max_seconds=45, return_trace=False,
+                     return_state=False, init_align=None):
         """Walk through `waypoints` [(x, y, is_jump), ...] with go-to-point steering.
         A jump waypoint is a world-anchored jump: the walk in-betweens up to it, the jump
         is triggered (only from its pre-take-off run-up) so the apex lands on the point,
         then the route continues. Lets you chain jumps with arbitrary paths between them."""
         n = int(max_seconds * C.FPS)
         cur = start_frame
-        align = (-self.yaw[cur], self.xy[cur].copy(), np.zeros(2))
+        align = init_align or (-self.yaw[cur], self.xy[cur].copy(), np.zeros(2))   # world start pose
         out, frozen, blend_left = [], None, 0
         tframe, tphase = [], []
         wp, locked, step = 0, 0, 0
-        prev_wp = self.xy[start_frame].copy() * 0            # start (origin); previous waypoint
+        prev_wp = transform_qpos(self.qpos[cur], *align)[0][:2]   # previous waypoint = start pos
         while step < n and wp < len(waypoints):
             world = transform_qpos(self.qpos[cur], *align)[0]
             cwx, cwy = world[0:2].copy(), self.yaw[cur] + align[0]
@@ -309,8 +310,11 @@ class MotionGraph:
                 step += 1
                 continue
 
-            tx, ty, is_jump = waypoints[wp]
-            dvec = np.array([tx, ty]) - cwx
+            w = waypoints[wp]
+            tx, ty, is_jump = w[0], w[1], w[2]
+            steer = np.array([tx, w[3]]) if len(w) > 3 else np.array([tx, ty])  # steering aim
+            dvec = np.array([tx, ty]) - cwx                   # to the actual point (trigger/reach)
+            svec = steer - cwx                                # to the steering aim
             heading = np.array([np.cos(cwy), np.sin(cwy)])
             if is_jump:                                       # trigger when apex would land on it
                 je = self.best_jump_entry(cur)
@@ -333,7 +337,7 @@ class MotionGraph:
                     continue
 
             if (step % C.SEARCH_INTERVAL == 0 and step > 0) or self._is_end(cur):
-                ref = float(np.arctan2(dvec[1], dvec[0]))     # steer toward the waypoint
+                ref = float(np.arctan2(svec[1], svec[0]))     # steer toward the aim (may be offset)
                 h = cwy + straighten * ((ref - cwy + np.pi) % (2 * np.pi) - np.pi)
                 want = speed * np.array([np.cos(h), np.sin(h)])
                 best, best_tr = self._greedy_choose(cur, cwy, want)
@@ -345,8 +349,13 @@ class MotionGraph:
                 cur += 1
             step += 1
         out = np.asarray(out)
+        state = (cur, cwx, cwy)                               # end frame + world pose, for chaining
+        if return_trace and return_state:
+            return out, np.array(tframe), np.array(tphase), state
         if return_trace:
             return out, np.array(tframe), np.array(tphase)
+        if return_state:
+            return out, state
         return out
 
     # --- task2: beam-search planning to a terminal state (in-betweening) -----

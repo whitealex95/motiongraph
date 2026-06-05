@@ -19,6 +19,8 @@ from motiongraph.motion_graph import MotionGraph
 from motiongraph.motion_matching import MotionMatcher
 from motiongraph.cleanup import cleanup
 from motiongraph.render import trace_labels, render_qpos
+from motiongraph.kinematics import transform_qpos, alignment_to, rotz
+from motiongraph.g1_model import quat_wxyz_yaw
 
 START, SPEED, SECONDS = 1500, 1.0, 13.0
 CMD = SpeedCommand([(0.0, SPEED, 0.0)])
@@ -155,6 +157,60 @@ def gen_loop(ctrl, clean=True):
     return out, _marker(out), trace_labels(tf, ctrl.lib), _boxes_from_route(ctrl, out, tf)
 
 
+def _yaw(frame):
+    return float(quat_wxyz_yaw(frame[None, 3:7])[0])
+
+
+def _place(seg, end_xy, end_yaw):
+    """Re-anchor a segment so its first frame continues from (end_xy, end_yaw)."""
+    dy, pv, of = alignment_to(seg[0, :2], _yaw(seg[0]), end_xy, end_yaw)
+    return transform_qpos(seg, dy, pv, of)
+
+
+def _plan_jump(g, start_frame, cur_xy, cur_yaw, box, seconds=6.0):
+    """Beam-plan a precise in-between to a jump's pre-take-off entry placed so the apex
+    lands on `box`, then play the jump. Returns the world segment + end state + entry."""
+    entry, land = g.best_jump_entry(int(start_frame))
+    fwd = float(g.qpos[g.jump_apex_of[entry], 0] - g.qpos[entry, 0])
+    world_target = box - np.array([fwd, 0.0])
+    local_target = rotz(-cur_yaw) @ (world_target - cur_xy)                # plan in its own frame
+    local = g.plan_to(CMD, seconds, int(start_frame), local_target, float(-cur_yaw), int(entry))
+    approach = _place(local, cur_xy, cur_yaw)
+    e_xy, e_yaw = approach[-1, :2], _yaw(approach[-1])
+    dy, pv, of = alignment_to(g.xy[entry], g.yaw[entry], e_xy, e_yaw)
+    jump = transform_qpos(g.qpos[np.arange(entry, land + 30)], dy, pv, of)
+    seg = np.concatenate([approach, jump])
+    tf = np.concatenate([np.full(len(approach), entry), np.arange(entry, land + 30)])
+    return seg, int(land + 29), seg[-1, :2], _yaw(seg[-1]), entry, tf
+
+
+def gen_loop_same_box(g, box=(5.0, 0.0), clean=True):
+    """HARD constraint: jump over ONE box, loop, jump over the SAME box again. Both jump
+    approaches are BEAM-PLANNED in-betweens to the jump's pre-take-off entry pose (precise,
+    no drift), so both apexes land on the same box; the loop between is the greedy graph."""
+    box = np.asarray(box, float)
+    seg1, F1, xy1, yaw1, e1, tf1 = _plan_jump(g, START, np.zeros(2), 0.0, box)   # jump 1
+    # loop: greedy navigation of a world circle around the box, starting from jump1's end
+    circ = [(round(box[0] + 5 * np.sin(a), 1), round(box[1] + 5 - 5 * np.cos(a), 1))
+            for a in np.linspace(np.deg2rad(25), np.deg2rad(330), 9)]
+    wps = [(x, y, False) for x, y in circ] + [(box[0] - 4.0, box[1], False)]
+    init = alignment_to(g.xy[F1], g.yaw[F1], xy1, yaw1)
+    seg2, tf2, _, (F2, xy2, yaw2) = g.follow_route(wps, start_frame=F1, init_align=init,
+                                                   max_seconds=45, straighten=0.7,
+                                                   return_trace=True, return_state=True)
+    seg3, F3, xy3, yaw3, e3, tf3 = _plan_jump(g, F2, xy2, yaw2, box)             # jump 2 (same box)
+    out = np.concatenate([seg1, seg2, seg3])
+    tf = np.concatenate([tf1, tf2, tf3])
+
+    jk = next(j for j, t in enumerate(g.lib["jump_takeoff"]) if g.lib["clip_id"][t] == g.clip_id[e1])
+    half = [float(h) for h in g.lib["jump_box"][jk]]
+    boxd = dict(pos=[box[0], box[1], half[2]], half=half, mat=_rz(0.0),
+                rgba=[0.96, 0.45, 0.10, 1.0], label=f"BOX ({box[0]:.1f}, {box[1]:.1f})  (same box x2)")
+    if clean:
+        out = cleanup(out)
+    return out, _marker(out), trace_labels(tf, g.lib), [boxd]
+
+
 def run(tag, ctrl):
     out, mk, tr, bx = gen_task1(ctrl)
     render_qpos(out, f"{C.OUT_DIR}/jump_{tag}_task1_oncommand.mp4", markers_fn=mk, trace=tr, box=bx)
@@ -168,6 +224,10 @@ if __name__ == "__main__":
     if which == "loop":                                  # jump -> loop -> jump (two jumps)
         out, mk, tr, bx = gen_loop(MotionGraph(lib))
         render_qpos(out, f"{C.OUT_DIR}/jump_mg_loop_twice.mp4", markers_fn=mk, trace=tr, boxes=bx)
+    if which == "samebox":                               # SAME box twice (loop + beam-planned return)
+        g = MotionGraph(lib, n_neighbors=28, tgt_stride=1)
+        out, mk, tr, bx = gen_loop_same_box(g)
+        render_qpos(out, f"{C.OUT_DIR}/jump_mg_samebox_twice.mp4", markers_fn=mk, trace=tr, boxes=bx)
     if which in ("raw", "both"):
         render_raw(lib)
     if which in ("mg", "both"):
