@@ -108,7 +108,7 @@ class MotionGraph:
             self.skill_edges[k].sort(key=lambda e: e[2])
         # pre-take-off run-up frames -- the only valid places to enter a jump
         from .jumps import jump_entries
-        self.jump_enter, self.jump_land_of = jump_entries(self.lib)
+        self.jump_enter, self.jump_land_of, self.jump_apex_of = jump_entries(self.lib)
 
     def top_skill_edges(self, k=5):
         """Top-k (best-blend) transition edges for each skill pair, e.g. walk->jump."""
@@ -272,6 +272,77 @@ class MotionGraph:
                     cur = best
                 elif not self._is_end(cur):
                     cur += 1
+            step += 1
+        out = np.asarray(out)
+        if return_trace:
+            return out, np.array(tframe), np.array(tphase)
+        return out
+
+    # --- waypoint route with world-anchored jumps -------------------------
+    def follow_route(self, waypoints, start_frame=0, speed=1.0, reach=1.0,
+                     straighten=0.7, land_pad=18, max_seconds=45, return_trace=False):
+        """Walk through `waypoints` [(x, y, is_jump), ...] with go-to-point steering.
+        A jump waypoint is a world-anchored jump: the walk in-betweens up to it, the jump
+        is triggered (only from its pre-take-off run-up) so the apex lands on the point,
+        then the route continues. Lets you chain jumps with arbitrary paths between them."""
+        n = int(max_seconds * C.FPS)
+        cur = start_frame
+        align = (-self.yaw[cur], self.xy[cur].copy(), np.zeros(2))
+        out, frozen, blend_left = [], None, 0
+        tframe, tphase = [], []
+        wp, locked, step = 0, 0, 0
+        prev_wp = self.xy[start_frame].copy() * 0            # start (origin); previous waypoint
+        while step < n and wp < len(waypoints):
+            world = transform_qpos(self.qpos[cur], *align)[0]
+            cwx, cwy = world[0:2].copy(), self.yaw[cur] + align[0]
+            if blend_left > 0:
+                world = blend_qpos(frozen, world, 1 - blend_left / C.BLEND_FRAMES)
+                blend_left -= 1
+            out.append(world); tframe.append(cur); tphase.append(int(self.skill[cur]))
+
+            if locked > 0:                                   # riding a jump
+                if not self._is_end(cur):
+                    cur += 1
+                locked -= 1
+                if locked == 0:
+                    wp += 1                                   # jump done -> next waypoint
+                step += 1
+                continue
+
+            tx, ty, is_jump = waypoints[wp]
+            dvec = np.array([tx, ty]) - cwx
+            heading = np.array([np.cos(cwy), np.sin(cwy)])
+            if is_jump:                                       # trigger when apex would land on it
+                je = self.best_jump_entry(cur)
+                aligned = abs(((np.arctan2(dvec[1], dvec[0]) - cwy + np.pi) % (2 * np.pi)) - np.pi) < 0.75
+                fwd = float(self.qpos[self.jump_apex_of[je[0]], 0] - self.qpos[je[0], 0]) if je else 0
+                if je and aligned and (dvec @ heading) <= fwd:
+                    entry, land = je
+                    align = alignment_to(self.xy[entry], self.yaw[entry], cwx, cwy)
+                    frozen, blend_left = world.copy(), C.BLEND_FRAMES
+                    cur, locked = entry, (land + land_pad) - entry   # ride only through landing
+                    prev_wp = np.array([tx, ty])
+                    step += 1
+                    continue
+            else:
+                seg = np.array([tx, ty]) - prev_wp            # advance when within reach OR past
+                passed = seg @ (cwx - np.array([tx, ty])) > 0 if seg @ seg > 1e-6 else False
+                if np.linalg.norm(dvec) < reach or passed:
+                    prev_wp = np.array([tx, ty])
+                    wp += 1
+                    continue
+
+            if (step % C.SEARCH_INTERVAL == 0 and step > 0) or self._is_end(cur):
+                ref = float(np.arctan2(dvec[1], dvec[0]))     # steer toward the waypoint
+                h = cwy + straighten * ((ref - cwy + np.pi) % (2 * np.pi) - np.pi)
+                want = speed * np.array([np.cos(h), np.sin(h)])
+                best, best_tr = self._greedy_choose(cur, cwy, want)
+                if best_tr:
+                    align = alignment_to(self.xy[best], self.yaw[best], cwx, cwy)
+                    frozen, blend_left = world.copy(), C.BLEND_FRAMES
+                cur = best
+            elif not self._is_end(cur):
+                cur += 1
             step += 1
         out = np.asarray(out)
         if return_trace:

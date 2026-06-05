@@ -27,7 +27,7 @@ class MotionMatcher:
         self.valid = np.where((lib["qpos"][:, 2] >= min_z) & (self.skill == 0))[0]
         self.tree = cKDTree(self.feat[self.valid])
         from .jumps import jump_entries
-        self.jump_enter, self.jump_land_of = jump_entries(lib)   # pre-take-off run-up frames
+        self.jump_enter, self.jump_land_of, self.jump_apex_of = jump_entries(lib)   # pre-take-off run-up frames
 
     def _is_clip_end(self, i):
         return self.fic[i] >= self.lengths[self.clip_id[i]] - 1

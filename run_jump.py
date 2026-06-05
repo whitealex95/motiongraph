@@ -118,6 +118,43 @@ def render_raw(lib):
         render_qpos(seg, f"{C.OUT_DIR}/jump_raw_{cid_name}.mp4", box=box)
 
 
+def _boxes_from_route(ctrl, out, tframe):
+    """One box per jump, placed at that jump's apex, oriented along the jump."""
+    lib = ctrl.lib
+    air = out[:, 2] > 0.95
+    idx = np.where(air)[0]
+    boxes = []
+    if len(idx):
+        for k, s in enumerate(np.split(idx, np.where(np.diff(idx) > 5)[0] + 1)):
+            ap = int(s[out[s, 2].argmax()])
+            cid = lib["clip_id"][int(tframe[ap])]
+            half = lib["jump_box"][0]
+            for j, t in enumerate(lib["jump_takeoff"]):
+                if lib["clip_id"][t] == cid:
+                    half = lib["jump_box"][j]
+                    break
+            half = [float(h) for h in half]
+            a, b = max(0, ap - 5), min(len(out) - 1, ap + 5)
+            yaw = float(np.arctan2(out[b, 1] - out[a, 1], out[b, 0] - out[a, 0]))
+            boxes.append(dict(pos=[float(out[ap, 0]), float(out[ap, 1]), half[2]], half=half,
+                              mat=_rz(yaw), rgba=[0.96, 0.45, 0.10, 1.0],
+                              label=f"BOX {k + 1}  ({out[ap,0]:.1f}, {out[ap,1]:.1f})"))
+    return boxes
+
+
+def gen_loop(ctrl, clean=True):
+    """Jump over a box, walk a loop, jump again -- two world-anchored jumps with the
+    walk in-betweened between them (one box per jump apex)."""
+    circ = [(round(5 + 5 * np.sin(a), 1), round(5 - 5 * np.cos(a), 1))
+            for a in np.linspace(np.deg2rad(25), np.deg2rad(330), 9)]
+    wps = [(5, 0, True)] + [(x, y, False) for x, y in circ] + [(2.0, 0.0, False), (5, 0, True), (9, 0, False)]
+    out, tf, tp = ctrl.follow_route(wps, start_frame=START, max_seconds=60,
+                                    straighten=0.7, return_trace=True)
+    if clean:
+        out = cleanup(out)
+    return out, _marker(out), trace_labels(tf, ctrl.lib), _boxes_from_route(ctrl, out, tf)
+
+
 def run(tag, ctrl):
     out, mk, tr, bx = gen_task1(ctrl)
     render_qpos(out, f"{C.OUT_DIR}/jump_{tag}_task1_oncommand.mp4", markers_fn=mk, trace=tr, box=bx)
@@ -128,6 +165,9 @@ def run(tag, ctrl):
 if __name__ == "__main__":
     which = sys.argv[1] if len(sys.argv) > 1 else "both"
     lib = load_library(C.JUMP_LIB_PATH)
+    if which == "loop":                                  # jump -> loop -> jump (two jumps)
+        out, mk, tr, bx = gen_loop(MotionGraph(lib))
+        render_qpos(out, f"{C.OUT_DIR}/jump_mg_loop_twice.mp4", markers_fn=mk, trace=tr, boxes=bx)
     if which in ("raw", "both"):
         render_raw(lib)
     if which in ("mg", "both"):
