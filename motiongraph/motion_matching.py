@@ -32,6 +32,41 @@ class MotionMatcher:
     def _is_clip_end(self, i):
         return self.fic[i] >= self.lengths[self.clip_id[i]] - 1
 
+    # --- A* planning hooks (shared planner over the feature KD-tree) ---------
+    def _pose_dist(self, a, b):
+        return float(np.linalg.norm(self.qpos[a, C.JOINTS] - self.qpos[b, C.JOINTS]))
+
+    def _play(self, frame, count, align):
+        """Play `count` frames from `frame` (clamped to clip end), placed by `align`."""
+        dyaw, pivot, offset = align
+        end = min(frame + count, frame + (self.lengths[self.clip_id[frame]] - 1 - self.fic[frame]) + 1)
+        idx = np.arange(frame, max(end, frame + 1))
+        world = transform_qpos(self.qpos[idx], dyaw, pivot, offset)
+        last = int(idx[-1])
+        return world, world[-1, 0:2].copy(), self.yaw[last] + dyaw, last
+
+    def _options(self, cur, xy, yaw, align, plan_k=20):
+        """Candidate macro-moves: (start_frame, align, is_transition, penalty). MM has no
+        precomputed edges, so transitions are the feature-NN of the current frame among the
+        valid walk frames (computed on the fly) -- the same set MM would jump to at runtime."""
+        opts = []
+        if not self._is_clip_end(cur):
+            opts.append((cur + 1, align, False, 0.0))
+        d, nn = self.tree.query(self.feat[cur], k=plan_k + 1)
+        for dist, k in zip(np.atleast_1d(d), np.atleast_1d(nn)):
+            if k >= len(self.valid):
+                continue
+            j = int(self.valid[k])
+            if self.clip_id[j] == self.clip_id[cur] and abs(j - cur) < 30:
+                continue                                          # skip near-self
+            opts.append((j, alignment_to(self.xy[j], self.yaw[j], xy, yaw), True, 0.3 + 0.05 * float(dist)))
+        return opts
+
+    def plan_to(self, command, seconds, start_frame, target_xy, target_yaw, term_frame, **kw):
+        """A* in-betweening to a target pose (shared planner over MM's feature-NN moves)."""
+        from .planner import astar_plan
+        return astar_plan(self, command, seconds, start_frame, target_xy, target_yaw, term_frame, **kw)
+
     def best_jump_entry(self, cur):
         """Pre-take-off run-up frame whose features best match the current frame, so the
         match jumps into the run-up (not mid-air) with a smooth take-off."""

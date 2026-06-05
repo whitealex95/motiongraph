@@ -86,7 +86,9 @@ Contributions / things demonstrated:
   `future_pos = lerp(cur_xy, target_xy, frac)`, `frac = min(1, h·dt/time_left)`; the last
   `tail·FPS` frames are eased exactly onto the terminal pose.
 
-MM is **reactive** (one NN per interval, no multi-step look-ahead). It has no A\* planner.
+MM is **reactive** by default (one NN per interval, no multi-step look-ahead), but it can
+also be driven by the **same shared A\* planner** as MG (see §5): its transitions are then
+the feature-NN of the current frame instead of MG's precomputed edges.
 
 ---
 
@@ -124,10 +126,17 @@ MM is **reactive** (one NN per interval, no multi-step look-ahead). It has no A\
     `‖xy−target‖` heuristic makes it dive to the target and arrive in <0.2 s. (We switched
     this planner from beam search to A\*; beam advanced a fixed-width front in lockstep depth
     — robust without a heuristic, but not optimal and with no goal pull.)
+  - *Facing term:* the velocity cost is the straight-line chord (end−start)/dt and is blind
+    to a fragment spinning in place while drifting forward — A\*, being an optimizer, exploits
+    that and **moonwalks/pirouettes** (measured: 360° spins twice per leg, yaw-rate mean
+    124°/s). Adding `turn_w·|Δheading|` + `face_w·|heading − travel dir|` makes the body face
+    the way it walks (yaw-rate mean → 34°/s, spins gone) and keeps the square crisp.
 
-**MM vs MG.** Both walk reactively (NN vs greedy edge). Only MG has the **A\* planner**;
-MM does not. The fixed-location "search over trigger time" used in the jump tasks is a
-separate 1-D grid search (same wrapper for MM and MG), not A\*.
+**MM vs MG.** Both walk reactively by default (NN vs greedy edge). The **A\* planner is
+shared** (`planner.py`): MG plans over its precomputed edges, MM over its feature-NN
+transitions (computed on the fly from the KD-tree). With it, *both* land the same-box double
+jump — so the capability is the planner, not the controller. The fixed-location "search over
+trigger time" used in the simpler jump tasks is a separate 1-D grid search, not A\*.
 
 ---
 
@@ -231,8 +240,11 @@ border + banner on each non-consecutive (transition) frame.
 - Single walk clip ⇒ limited maneuverability: turn radius ~5 m, so a "square" loop is in
   practice a rounded loop; reactive return drifts (hence A\* planning for precision).
 - Jump heights are low (data are small hops) ⇒ low boxes.
-- MM currently has no A\* planner; the same-box guarantee is shown with MG only (an
-  A\* search over the MM feature DB would give MM the same guarantee).
+- The same-box double jump is now shown with **both** MG and MM (both use the shared A\*
+  planner; MM plans over feature-NN transitions). Reactive MM — kept as a contrast — still
+  drifts on the 2nd jump (~0.8 m), which is the gap planning closes.
+- MM A\* is slower than MG A\* (no precomputed edges → a KD-tree query per expansion: ~9 s
+  for the whole exp2 path vs MG's <1 s), but still offline-fast.
 
 ---
 
@@ -268,8 +280,9 @@ motiongraph/
   features.py       MM feature vectors
   commands.py       SpeedCommand -> predicted trajectory
   jumps.py          jump entries confined to `ready` (+ land/apex maps)
-  motion_matching.py  feature DB + NN controller (+ jump_at)
-  motion_graph.py   descriptor/edges, greedy follow_command/route, A* plan_to, jump
+  motion_matching.py  feature DB + NN controller (+ jump_at, + A* hooks)
+  motion_graph.py   descriptor/edges, greedy follow_command/route, jump
+  planner.py        shared A* planner (astar_plan) used by both MG and MM
   footlock.py       foot-lock IK (sole-sphere DLS)
   cleanup.py        root de-jitter -> foot-lock
   render.py         offline MuJoCo -> MP4 (HUD, transition flash, boxes)

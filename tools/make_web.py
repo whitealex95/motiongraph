@@ -18,6 +18,7 @@ VIDEOS = [
     ("exp1_mm_path.mp4", "exp1_mm.mp4"),
     ("exp2_mg_path_jump.mp4", "exp2_mg.mp4"),
     ("exp2_mm_path_jump.mp4", "exp2_mm.mp4"),
+    ("exp2_mm_reactive.mp4", "exp2_mm_reactive.mp4"),
 ]
 
 

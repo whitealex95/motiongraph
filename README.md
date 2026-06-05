@@ -293,8 +293,9 @@ motiongraph/
   features.py           motion-matching feature vectors
   commands.py           speed command -> predicted trajectory
   render.py             offline MuJoCo -> MP4 renderer
-  motion_matching.py    feature DB + nearest-neighbour controller
-  motion_graph.py       transition graph + greedy follower + A* planner + jump skill
+  motion_matching.py    feature DB + nearest-neighbour controller (+ A* hooks)
+  motion_graph.py       transition graph + greedy follower + jump skill
+  planner.py            shared A* planner (used by both MG and MM)
   footlock.py           foot-lock IK (sole-sphere pin via damped least squares)
   cleanup.py            post-process: root de-jitter -> foot-lock
   jumps.py              shared pre-take-off jump-entry index (MM + MG)

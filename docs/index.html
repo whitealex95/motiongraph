@@ -81,10 +81,10 @@ slow on mobile, use the “Open fullscreen” link.</p>
     <video src="videos/exp1_mg.mp4" autoplay muted loop playsinline></video>
     <p class="legend">Each corner is reached by an <b>A* plan</b> (<code>plan_to</code>); the path closes
     cleanly (bbox 6×6). Corners are rounded because the single walk clip has no sharp turns (~5&nbsp;m turn radius).</p></div>
-  <div class="card"><h4><span class="tag">Motion matching</span> reactive go-to-point</h4>
+  <div class="card"><h4><span class="tag">Motion matching</span> A*-planned corners</h4>
     <video src="videos/exp1_mm.mp4" autoplay muted loop playsinline></video>
-    <p class="legend">No planner: the nearest-neighbour query simply aims at the current corner. MM's trajectory
-    features make it steer well, so it also traces the 6×6 square (slightly wobblier).</p></div>
+    <p class="legend">MM now uses the <b>same A* planner</b> as MG, but over its <i>feature-nearest-neighbour</i>
+    transitions instead of graph edges — so it also closes the 6×6 square cleanly.</p></div>
 </div>
 
 <h2>4 · Experiment 2 — same path, jump over a box at (3,0)</h2>
@@ -95,16 +95,20 @@ must jump over the <b>same box</b> twice.</p>
     <video src="videos/exp2_mg.mp4" autoplay muted loop playsinline></video>
     <p class="legend"><span class="ok">Both jumps land on the box</span> (apex within ~0.15&nbsp;m): each jump's
     pre-take-off entry is reached by an A* plan, so the apex is anchored to the box even after the loop.</p></div>
-  <div class="card"><h4><span class="tag">Motion matching</span> reactive jump trigger</h4>
+  <div class="card"><h4><span class="tag">Motion matching</span> A*-planned approach to each jump</h4>
     <video src="videos/exp2_mm.mp4" autoplay muted loop playsinline></video>
+    <p class="legend"><span class="ok">Both jumps land on the box</span> (apex within ~0.15&nbsp;m). MM runs the same
+    A* planner over its feature-NN transitions, so — like MG — it precisely re-acquires the box after the loop.</p></div>
+  <div class="card"><h4><span class="tag">Motion matching</span> reactive (no planner) — for contrast</h4>
+    <video src="videos/exp2_mm_reactive.mp4" autoplay muted loop playsinline></video>
     <p class="legend"><span class="ok">1st jump lands</span> (~0.2&nbsp;m) but the <span class="bad">2nd misses
-    by ~0.8&nbsp;m</span>: with no planner, MM cannot precisely return to the box after the loop. This is the core
-    MM↔MG difference.</p></div>
+    by ~0.8&nbsp;m</span>: one nearest-neighbour per step can't precisely return to the box after the loop.</p></div>
 </div>
-<div class="note"><b>Why MG can and MM cannot guarantee the second jump.</b> Reaching a <i>fixed</i> world point with a
-specific facing after a loop needs look-ahead. MG has an <b>A* planner</b> over its graph; MM is purely
-reactive (one nearest-neighbour per step). An A* search over MM's feature database would give MM the same guarantee
-— it just isn't built here.</div>
+<div class="note"><b>It's the planner, not the controller.</b> Reaching a <i>fixed</i> world point with a specific
+facing after a loop needs <b>look-ahead</b>. Reactive MM (one nearest-neighbour per step) drifts on the second jump;
+giving MM the <b>same A* planner</b> — searching over its feature-nearest-neighbour transitions instead of MG's graph
+edges — lands both jumps, exactly like MG. So the double-jump guarantee comes from <i>planning</i>, and both a motion
+graph and a motion-matching feature database can be planned over identically.</div>
 
 <h2>5 · Method</h2>
 
@@ -121,6 +125,9 @@ and both-feet positions/velocities + root velocity (pose, 15-D); z-scored with p
 <li><b>Criterion:</b> query = <code>[trajectory-from-command | pose-of-current-frame]</code>; pick the
 <b>nearest neighbour</b> in the weighted feature space (cKDTree), with hysteresis (only switch if clearly better than
 continuing). Reactive — no multi-step look-ahead.</li>
+<li><b>A* planning (<code>plan_to</code>):</b> the same shared planner MG uses — but MM has no precomputed edges, so
+its transitions are the <i>feature-nearest-neighbours</i> of the current frame (the same set it would jump to at
+runtime), computed on the fly from the KD-tree. This is what lets reactive MM also land the second box jump.</li>
 </ul>
 
 <h3>Motion graph (MG)</h3>
@@ -192,6 +199,7 @@ joints (root untouched). <b>Root de-jitter:</b> Savitzky–Golay on root x,y onl
 <tr><td>MG neighbours / target stride</td><td>16 (28 for paths) / 2 (1)</td><td>descriptor PCA dim</td><td>16</td></tr>
 <tr><td>A* macro-step K / arrival reach</td><td>10 / 0.7 m</td><td>root smooth window</td><td>9</td></tr>
 <tr><td>A* cost weights w_pos/w_yaw/w_pose/cmd</td><td>1.5 / 0.4 / 0.15 / 0.4</td><td>A* expansion budget</td><td>20000</td></tr>
+<tr><td>A* turn / facing weights</td><td>0.6 / 0.5</td><td>MM A* NN transitions/step</td><td>20</td></tr>
 <tr><td>phase ready/take-off/touch/after</td><td>12 / 10 / 6 / 18</td><td>flight foot threshold</td><td>0.13 m</td></tr>
 <tr><td>box half (x,y)</td><td>0.13, 0.28 m</td><td>T-pose trim</td><td>45 frames/end</td></tr>
 </table>

@@ -10,13 +10,12 @@ to its successor. Walking the graph yields novel motion built from clip fragment
          pose/position at a fixed time (motion in-betweening).
 """
 import os
-import heapq
 import pickle
 import numpy as np
 from scipy.spatial import cKDTree
 
 from . import config as C
-from .kinematics import transform_qpos, alignment_to, blend_qpos, ease_to_terminal
+from .kinematics import transform_qpos, alignment_to, blend_qpos
 
 
 def _descriptors(lib):
@@ -363,7 +362,8 @@ class MotionGraph:
         return float(np.linalg.norm(self.qpos[a, C.JOINTS] - self.qpos[b, C.JOINTS]))
 
     def _options(self, cur, xy, yaw, align):
-        """Candidate macro-moves from a state: (start_frame, align, is_jump, penalty)."""
+        """Candidate macro-moves: (start_frame, align, is_transition, penalty). Transitions
+        come from this frame's precomputed graph edges (or the nearest edge-owning frame)."""
         opts = []
         if not self._is_end(cur):
             opts.append((cur + 1, align, False, 0.0))
@@ -373,95 +373,7 @@ class MotionGraph:
                 opts.append((j, alignment_to(self.xy[j], self.yaw[j], xy, yaw), True, 0.3 + 0.05 * d))
         return opts
 
-    def plan_to(self, command, seconds, start_frame, target_xy, target_yaw, term_frame,
-                K=None, max_expansions=20000, w_pos=1.5, w_yaw=0.4, w_pose=0.15, cmd_w=0.4,
-                cruise=1.0, reach=0.7):
-        """A* search for a least-cost edge sequence that arrives at the target pose.
-
-        Best-first over a priority queue ordered by f = g + h:
-          g = cost-so-far = Σ ( cmd_w·‖segment_vel − go-to-target_vel‖ + transition penalty ),
-              so wandering is expensive and progress toward the target is cheap;
-          h = w_pos · ‖xy − target‖  -- a goal-distance heuristic that pulls the frontier
-              toward the target (goal-directed / weighted A*; on this effectively-infinite
-              state space a zero heuristic degenerates to Dijkstra and never arrives).
-        A node is a GOAL once it is within `reach` of the target; its g then absorbs the
-        goal cost w_pos·‖xy−target‖ + w_yaw·|Δyaw| + w_pose·pose-distance, and the first
-        goal popped is returned. A discretized closed set (frame, world xy/yaw) collapses
-        revisits; `seconds`·1.5 caps the horizon and an expansion budget guarantees
-        termination. The winning chain is replayed and eased onto the exact terminal pose.
-        """
-        K = K or C.SEARCH_INTERVAL
-        Nmax = int(seconds * C.FPS * 1.5)                   # horizon cap (target should arrive first)
-        target_xy = np.asarray(target_xy, float)
-
-        def want_vel(xy):                                   # go-to-point: cruise toward the target
-            d = target_xy - xy
-            n = np.linalg.norm(d)
-            return (cruise * d / n) if n > 1e-6 else np.zeros(2)
-
-        def goal_cost(xy, yaw, frame):
-            return (w_pos * float(np.linalg.norm(xy - target_xy))
-                    + w_yaw * abs(_angdiff(yaw, target_yaw)) + w_pose * self._pose_dist(frame, term_frame))
-
-        # node = [cur, align, xy, yaw, t, g, parent, start_frame, is_jump]
-        a0 = (-self.yaw[start_frame], self.xy[start_frame].copy(), np.zeros(2))
-        x0 = transform_qpos(self.qpos[start_frame], *a0)[0]
-        nodes = [[start_frame, a0, x0[:2], self.yaw[start_frame] + a0[0], 0, 0.0, -1, start_frame, False]]
-        pq = [(w_pos * float(np.linalg.norm(nodes[0][2] - target_xy)), 0)]   # (f = g + h, node id)
-        seen, best, best_g, used = set(), 0, 1e9, 0         # best=0 (start) is the always-valid fallback
-
-        while pq and used < max_expansions:
-            _, nid = heapq.heappop(pq)
-            cur, align, xy, yaw, t, g, _, _, _ = nodes[nid]
-            if float(np.linalg.norm(xy - target_xy)) < reach or t >= Nmax:
-                best = nid                                  # first goal popped == lowest f
-                break
-            key = (cur, round(float(xy[0]), 1), round(float(xy[1]), 1), round(float(yaw), 1))
-            if key in seen:
-                continue
-            seen.add(key); used += 1
-            for start, al, jump, pen in self._options(cur, xy, yaw, align):
-                world, exy, eyaw, last = self._play(start, K, al)
-                te = t + len(world)
-                avgv = (exy - world[0, :2]) / (max(len(world), 1) * C.DT)
-                ng = g + cmd_w * float(np.linalg.norm(avgv - want_vel(world[0, :2]))) + pen
-                arrived = float(np.linalg.norm(exy - target_xy)) < reach
-                if arrived:                                 # absorb the goal cost at arrival
-                    ng += goal_cost(exy, eyaw, last)
-                    if ng < best_g:                         # cheapest arrival = fallback if budget runs out
-                        best_g, best = ng, len(nodes)
-                nodes.append([last, al, exy, eyaw, te, ng, nid, start, jump])
-                heapq.heappush(pq, (ng + w_pos * float(np.linalg.norm(exy - target_xy)), len(nodes) - 1))
-
-        return self._reconstruct(best, nodes, K, target_xy, target_yaw, term_frame)
-
-    def _reconstruct(self, leaf, nodes, K, target_xy, target_yaw, term_frame):
-        """Replay the winning node chain with blends, then ease onto the terminal."""
-        chain = []
-        nid = leaf
-        while nid > 0:
-            chain.append(nid)
-            nid = nodes[nid][6]
-        chain.reverse()
-
-        out, frozen, blend_left = [], None, 0
-        for nid in chain:
-            _, align, _, _, _, _, _, start, jump = nodes[nid]
-            world, _, _, _ = self._play(start, K, align)
-            if jump:
-                frozen, blend_left = (out[-1] if out else world[0]).copy(), C.BLEND_FRAMES
-            for w in world:
-                if blend_left > 0:
-                    w = blend_qpos(frozen, w, 1 - blend_left / C.BLEND_FRAMES)
-                    blend_left -= 1
-                out.append(w)
-        out = np.asarray(out)
-
-        # terminal pose placed at the target world pose, then ease the tail onto it
-        dy, pv, of = alignment_to(self.xy[term_frame], self.yaw[term_frame], target_xy, target_yaw)
-        term = transform_qpos(self.qpos[term_frame], dy, pv, of)[0]
-        return ease_to_terminal(out, term, int(0.7 * C.FPS))
-
-
-def _angdiff(a, b):
-    return (a - b + np.pi) % (2 * np.pi) - np.pi
+    def plan_to(self, command, seconds, start_frame, target_xy, target_yaw, term_frame, **kw):
+        """A* in-betweening to a target pose (shared planner over the graph's edges)."""
+        from .planner import astar_plan
+        return astar_plan(self, command, seconds, start_frame, target_xy, target_yaw, term_frame, **kw)
