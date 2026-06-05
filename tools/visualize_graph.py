@@ -58,12 +58,12 @@ def build(which="jump"):
     if jump:
         out, tframe, tphase = g.follow_with_jump(
             SpeedCommand([(0.0, 1.0, 0.0)]), 8.0, start_frame=1500, jump_at=3.5, return_trace=True)
-        title = "Motion graph with a JUMP skill (walk1_subject2 + CAMDM walk->jump->walk)"
+        title = f"Motion graph with a JUMP skill ({C.JUMP_BASE_WALK} + CAMDM walk->jump->walk)"
     else:
         out, tframe, tphase = g.follow_command(
             SpeedCommand([(0.0, 1.0, 0.0), (4.0, 1.1, np.deg2rad(40))]),
             12.0, start_frame=1500, return_trace=True)
-        title = "Motion graph on a single LAFAN1 walk sequence (walk1_subject2)"
+        title = f"Motion graph on a single LAFAN1 walk sequence ({C.LOCO_CLIPS[0]})"
     out = cleanup(out, gm)
 
     # 2-D pose-space embedding (PCA of the transition descriptor)

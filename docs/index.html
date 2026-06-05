@@ -55,12 +55,31 @@ motion) are dropped so the T-pose never appears.</p>
     <p class="legend">Short, nearly straight clips that walk, jump, and keep walking. Used for the jump skill.</p></div>
 </div>
 
-<h2>2 · Experiment 1 — follow a square path</h2>
+<h2>2 · Interactive motion graph</h2>
+<p>The motion graph itself, live in your browser. <b>Left:</b> a 3-D G1 skeleton playing a graph-generated motion
+(press <b>play</b> or drag the time slider; orbit with the mouse). <b>Right:</b> the <i>full</i> graph embedded in 2-D
+pose space (PCA of the transition descriptor) — every frame is a node, faint grey lines are walk↔walk transition
+edges, and the traversal lights up edge-by-edge as the skeleton moves (blue = walked, orange = jumping). The two views
+are time-synced.</p>
+<div class="grid">
+  <div class="card"><h4><span class="tag">walk + jump</span> graph with the jump skill</h4>
+    <iframe src="graph_jump.html" loading="lazy" style="width:100%;height:560px;border:0;border-radius:8px;background:#fff"></iframe>
+    <p class="legend">Lime diamonds = the only <b>jump entry</b> frames (pre-take-off run-ups); green = jump→walk
+    rejoin edges; orange dots = jump frames. <a href="graph_jump.html" target="_blank">Open fullscreen ↗</a></p></div>
+  <div class="card"><h4><span class="tag">walk only</span> single-clip locomotion graph</h4>
+    <iframe src="graph_walk.html" loading="lazy" style="width:100%;height:560px;border:0;border-radius:8px;background:#fff"></iframe>
+    <p class="legend">One unimodal walk clip: a dense web of walk↔walk transitions and a single traversal threading
+    through it. <a href="graph_walk.html" target="_blank">Open fullscreen ↗</a></p></div>
+</div>
+<p class="legend mut">Each plot is a self-contained interactive figure (~2–5&nbsp;MB, loads on scroll). If an embed is
+slow on mobile, use the “Open fullscreen” link.</p>
+
+<h2>3 · Experiment 1 — follow a square path</h2>
 <p>Path <code>(0,0)→(6,0)→(6,6)→(0,6)→(0,0)→(6,0)</code> (a 6×6 m loop, last edge re-traced).</p>
 <div class="grid">
-  <div class="card"><h4><span class="tag">Motion graph</span> beam-planned corners</h4>
+  <div class="card"><h4><span class="tag">Motion graph</span> A*-planned corners</h4>
     <video src="videos/exp1_mg.mp4" autoplay muted loop playsinline></video>
-    <p class="legend">Each corner is reached by a <b>beam-search plan</b> (<code>plan_to</code>); the path closes
+    <p class="legend">Each corner is reached by an <b>A* plan</b> (<code>plan_to</code>); the path closes
     cleanly (bbox 6×6). Corners are rounded because the single walk clip has no sharp turns (~5&nbsp;m turn radius).</p></div>
   <div class="card"><h4><span class="tag">Motion matching</span> reactive go-to-point</h4>
     <video src="videos/exp1_mm.mp4" autoplay muted loop playsinline></video>
@@ -68,14 +87,14 @@ motion) are dropped so the T-pose never appears.</p>
     features make it steer well, so it also traces the 6×6 square (slightly wobblier).</p></div>
 </div>
 
-<h2>3 · Experiment 2 — same path, jump over a box at (3,0)</h2>
+<h2>4 · Experiment 2 — same path, jump over a box at (3,0)</h2>
 <p>A box sits at <code>(3,0)</code>, which the path crosses twice (the two <code>→(6,0)</code> legs), so the robot
 must jump over the <b>same box</b> twice.</p>
 <div class="grid">
-  <div class="card"><h4><span class="tag">Motion graph</span> beam-planned approach to each jump</h4>
+  <div class="card"><h4><span class="tag">Motion graph</span> A*-planned approach to each jump</h4>
     <video src="videos/exp2_mg.mp4" autoplay muted loop playsinline></video>
-    <p class="legend"><span class="ok">Both jumps land on the box</span> (apex within ~0.2&nbsp;m): each jump's
-    pre-take-off entry is reached by a beam-search plan, so the apex is anchored to the box even after the loop.</p></div>
+    <p class="legend"><span class="ok">Both jumps land on the box</span> (apex within ~0.15&nbsp;m): each jump's
+    pre-take-off entry is reached by an A* plan, so the apex is anchored to the box even after the loop.</p></div>
   <div class="card"><h4><span class="tag">Motion matching</span> reactive jump trigger</h4>
     <video src="videos/exp2_mm.mp4" autoplay muted loop playsinline></video>
     <p class="legend"><span class="ok">1st jump lands</span> (~0.2&nbsp;m) but the <span class="bad">2nd misses
@@ -83,11 +102,11 @@ must jump over the <b>same box</b> twice.</p>
     MM↔MG difference.</p></div>
 </div>
 <div class="note"><b>Why MG can and MM cannot guarantee the second jump.</b> Reaching a <i>fixed</i> world point with a
-specific facing after a loop needs look-ahead. MG has a <b>beam-search planner</b> over its graph; MM is purely
-reactive (one nearest-neighbour per step). A beam search over MM's feature database would give MM the same guarantee
+specific facing after a loop needs look-ahead. MG has an <b>A* planner</b> over its graph; MM is purely
+reactive (one nearest-neighbour per step). An A* search over MM's feature database would give MM the same guarantee
 — it just isn't built here.</div>
 
-<h2>4 · Method</h2>
+<h2>5 · Method</h2>
 
 <h3>Pipeline</h3>
 <p>Both controllers stitch mocap <i>fragments</i> under a shared backbone: a planar <b>root alignment</b> keeps the
@@ -110,27 +129,37 @@ continuing). Reactive — no multi-step look-ahead.</li>
 close (good blend points). Jump frames are excluded as normal targets, so locomotion never accidentally jumps.</li>
 <li><b>Greedy following:</b> every few frames pick <code>{continue} ∪ {transitions}</code> by
 <code>cost(f)=‖v_local(f) − desired_local‖ + penalty</code> (1 candidate, reactive).</li>
-<li><b>Beam-search planning (<code>plan_to</code>):</b> the only multi-step optimizer — used for the corners and the
+<li><b>A* planning (<code>plan_to</code>):</b> the only multi-step optimizer — used for the corners and the
 jump approaches (see below).</li>
 </ul>
 
-<h3>Beam search — and how it differs from A*</h3>
-<p>We plan a sequence of graph moves that reaches a target <i>(position, facing, pose)</i> at a <b>fixed time</b>.</p>
+<h3>A* planning — and how it differs from beam search</h3>
+<p>We plan a least-cost sequence of graph moves that <b>arrives at a target</b> <i>(position, facing, pose)</i>. The
+graph node is <code>(clip&nbsp;frame, world placement)</code>; an edge is a <i>macro-step</i> (replay K=10 frames along
+a continuation or transition edge, re-aligned to the world). A* runs best-first over a priority queue ordered by
+<b>f&nbsp;=&nbsp;g&nbsp;+&nbsp;h</b>:</p>
+<ul>
+<li><b>g</b> (cost-so-far) = Σ ( <code>‖segment&nbsp;velocity − go-to-target&nbsp;velocity‖</code> + transition
+penalty ) — wandering is expensive, progress toward the target is cheap;</li>
+<li><b>h</b> (heuristic) = <code>w_pos · ‖xy − target‖</code> — a goal-distance estimate that <i>pulls</i> the
+frontier toward the target. A node within <code>reach</code> of the target is a goal; its g then absorbs
+<code>w_pos·‖xy−target‖ + w_yaw·|Δyaw| + w_pose·pose-distance</code>, and the first goal popped is returned.</li>
+</ul>
+<p>A discretized <b>closed set</b> (frame + rounded world pose) collapses revisits so the effectively-infinite state
+space stays finite. The winning node chain is then replayed with cross-fades and eased onto the exact terminal pose.</p>
 <table>
-<tr><th></th><th>A* / Dijkstra</th><th>Beam search (ours)</th></tr>
-<tr><td>frontier</td><td>a priority queue of <b>all</b> open nodes</td><td>only the best <b>B</b> nodes per round (here B=64)</td></tr>
-<tr><td>expansion</td><td>pop the single most promising node</td><td>expand every kept node, then re-prune to B</td></tr>
-<tr><td>guarantee</td><td>optimal (with an admissible heuristic)</td><td><b>not</b> optimal — may prune the best path</td></tr>
-<tr><td>memory</td><td>can blow up (keeps everything)</td><td>bounded (B × depth)</td></tr>
-<tr><td>fits when…</td><td>shortest path in a tractable graph</td><td>huge state space, fixed horizon, soft costs</td></tr>
+<tr><th></th><th>A* (ours)</th><th>Beam search</th></tr>
+<tr><td>frontier</td><td>a priority queue of <b>all</b> open nodes, ordered by f = g + h</td><td>only the best <b>B</b> nodes per depth round</td></tr>
+<tr><td>expansion</td><td>pop the single lowest-f node, expand it</td><td>expand every kept node, then re-prune to B</td></tr>
+<tr><td>guidance</td><td>a <b>heuristic</b> aims the search at the goal</td><td>none — advances all survivors in lockstep depth</td></tr>
+<tr><td>guarantee</td><td>optimal with an admissible h (we use a goal-pulling h → fast, near-optimal)</td><td><b>not</b> optimal — may prune the best path</td></tr>
+<tr><td>fits when…</td><td>there's a goal-distance heuristic to follow</td><td>fixed horizon, no usable heuristic</td></tr>
 </table>
-<p>Our state = (clip frame, world placement, elapsed time) — effectively infinite (every frame × every world pose ×
-time), and the cost is not just path length but also command/velocity tracking. A full A* priority queue is
-infeasible there, so we keep a <b>beam</b> of the 64 best partial plans each macro-step, scored by
-<code>cost-so-far + admissible distance-to-go</code>, and at the deadline score the goal
-(<code>‖xy−target‖ + |Δyaw| + pose distance</code>), then backtrack the best plan. So: A* is exhaustive best-first
-shortest-path; beam search is a width-limited, fixed-horizon trajectory optimizer. (Beam search with B=∞ and a goal
-test would reduce to a breadth-first / A*-like search.)</p>
+<p class="legend">Why A* needs the heuristic here: with a <i>zero</i> heuristic, A* degenerates to Dijkstra and, given
+the graph's huge branching (~28 edges/node), exhausts its budget while still only halfway to the goal. The
+<code>‖xy−target‖</code> heuristic is what makes it dive toward the target and arrive in a few hundredths of a second.
+Beam search sidesteps the missing-heuristic problem by advancing a fixed-width front in lockstep — robust, but it can
+prune the optimal plan and has no goal pull. We switched the planner from beam search to A*.</p>
 
 <h3>Jump skill — five phases</h3>
 <p>Flight = both feet airborne; we carve five phases around it. A jump can be <b>entered only in <code>ready</code></b>
@@ -161,7 +190,8 @@ joints (root untouched). <b>Root de-jitter:</b> Savitzky–Golay on root x,y onl
 <tr><td>FPS</td><td>30</td><td>blend frames</td><td>12</td></tr>
 <tr><td>MM search interval / margin</td><td>15 / 0.35</td><td>MG decision interval</td><td>10</td></tr>
 <tr><td>MG neighbours / target stride</td><td>16 (28 for paths) / 2 (1)</td><td>descriptor PCA dim</td><td>16</td></tr>
-<tr><td>beam width / macro-step K</td><td>64 / 10</td><td>root smooth window</td><td>9</td></tr>
+<tr><td>A* macro-step K / arrival reach</td><td>10 / 0.7 m</td><td>root smooth window</td><td>9</td></tr>
+<tr><td>A* cost weights w_pos/w_yaw/w_pose/cmd</td><td>1.5 / 0.4 / 0.15 / 0.4</td><td>A* expansion budget</td><td>20000</td></tr>
 <tr><td>phase ready/take-off/touch/after</td><td>12 / 10 / 6 / 18</td><td>flight foot threshold</td><td>0.13 m</td></tr>
 <tr><td>box half (x,y)</td><td>0.13, 0.28 m</td><td>T-pose trim</td><td>45 frames/end</td></tr>
 </table>

@@ -22,7 +22,7 @@ Contributions / things demonstrated:
    after `after`**.
 4. **World-anchored jumps**: a jump's apex is pinned to a fixed obstacle (a box). The walk
    into/out of the jump is an **in-between**, computed either reactively (greedy/NN) or by
-   **beam-search planning** (`plan_to`) when precision is required.
+   **A\* planning** (`plan_to`) when precision is required.
 5. A composite task that satisfies a hard constraint: **jump over one box, loop, and jump
    over the same box again**, with both apexes within ~0.25 m of the box.
 
@@ -86,7 +86,7 @@ Contributions / things demonstrated:
   `future_pos = lerp(cur_xy, target_xy, frac)`, `frac = min(1, h·dt/time_left)`; the last
   `tail·FPS` frames are eased exactly onto the terminal pose.
 
-MM is **reactive** (one NN per interval, no multi-step look-ahead). It has no beam planner.
+MM is **reactive** (one NN per interval, no multi-step look-ahead). It has no A\* planner.
 
 ---
 
@@ -107,19 +107,27 @@ MM is **reactive** (one NN per interval, no multi-step look-ahead). It has no be
   average planar velocity (in its own local frame) and `w_local = R(−yaw)·want`. Scoring in
   the *local* frame is what lets the graph steer (an early version aligned every candidate
   to the current heading first, which made them all look "forward"). Reactive, 1 candidate.
-- **Beam-search planning** (`plan_to`) — the only multi-step optimizer. Finds an edge
-  sequence that reaches a terminal `(xy, yaw, pose)` at a fixed time:
-  - node = `(frame, A, xy, yaw, t, cost, parent)`; a macro-step plays `K` frames along
-    `{continue} ∪ {transitions}`; step cost = `cmd_w·‖avg_vel − desired‖ + transition_pen`.
-  - After each round keep the best `beam = 64` nodes by `cost + admissible_distance_to_go`.
-  - At `t ≥ N`: goal cost `= w_pos·‖xy−target‖ + w_yaw·|Δyaw| + w_pose·pose_dist(frame,
-    terminal)`. Backtrack best leaf, replay with blends, ease onto terminal.
-  - `desired` follows the speed command while cruising, then **reach-target pacing**
-    (toward the target at `remaining_dist/remaining_time`) in the final `tail` s.
+- **A\* planning** (`plan_to`) — the only multi-step optimizer. Finds a least-cost edge
+  sequence that **arrives at** a target `(xy, yaw, pose)`:
+  - node = `(frame, A, xy, yaw, t, g, parent)`; a macro-step plays `K` frames along
+    `{continue} ∪ {transitions}`; step cost `g += cmd_w·‖avg_vel − go-to-target_vel‖ +
+    transition_pen` (go-to-target velocity = `cruise·(target−xy)/‖·‖`, so wandering is dear).
+  - Best-first over a priority queue ordered by `f = g + h`, with the goal-distance
+    heuristic `h = w_pos·‖xy − target‖` pulling the frontier toward the target.
+  - A node within `reach` (0.7 m) of the target is a **goal**; its `g` then absorbs
+    `w_pos·‖xy−target‖ + w_yaw·|Δyaw| + w_pose·pose_dist(frame, terminal)`. First goal
+    popped (lowest `f`) wins. Backtrack the chain, replay with blends, ease onto terminal.
+  - A discretized **closed set** `(frame, round(xy,0.1), round(yaw,0.1))` collapses revisits;
+    an expansion budget (20000) + horizon cap (`1.5·seconds`) guarantee termination.
+  - *Why the heuristic matters:* with `h=0`, A\* = Dijkstra and, given the graph's ~28
+    edges/node branching, burns its whole budget only halfway to the goal. The
+    `‖xy−target‖` heuristic makes it dive to the target and arrive in <0.2 s. (We switched
+    this planner from beam search to A\*; beam advanced a fixed-width front in lockstep depth
+    — robust without a heuristic, but not optimal and with no goal pull.)
 
-**MM vs MG.** Both walk reactively (NN vs greedy edge). Only MG has the **beam planner**;
+**MM vs MG.** Both walk reactively (NN vs greedy edge). Only MG has the **A\* planner**;
 MM does not. The fixed-location "search over trigger time" used in the jump tasks is a
-separate 1-D grid search (same wrapper for MM and MG), not beam search.
+separate 1-D grid search (same wrapper for MM and MG), not A\*.
 
 ---
 
@@ -174,7 +182,7 @@ separate 1-D grid search (same wrapper for MM and MG), not beam search.
 
 - **HARD: same box twice with a loop** (`gen_loop_same_box`, MG). Reactive steering cannot
   guarantee the precise return after a loop (single-clip greedy drifts ~0.85 m laterally,
-  invariant to waypoint/steer tuning). So **both jump approaches are beam-planned
+  invariant to waypoint/steer tuning). So **both jump approaches are A\*-planned
   in-betweens**: `plan_to` navigates precisely to the `ready` entry pose at `(bx−fwd, by)`
   facing +x; the loop between is greedy. Result: one box, both apexes within ~0.25 m
   `(4.97, 0.24)` and `(4.99, 0.20)` of `(5,0)`. Segments are stitched in world coordinates
@@ -182,7 +190,7 @@ separate 1-D grid search (same wrapper for MM and MG), not beam search.
   transform).
 
 This is the clean statement for a paper: *reactive control reaches the box approximately;
-graph planning (beam) reaches the world-anchored keyframe exactly, so the same obstacle can
+graph planning (A\*) reaches the world-anchored keyframe exactly, so the same obstacle can
 be re-used.*
 
 ---
@@ -221,10 +229,10 @@ border + banner on each non-consecutive (transition) frame.
 
 - Kinematic playback (no dynamics); residual foot slip is inherent to the retargeted data.
 - Single walk clip ⇒ limited maneuverability: turn radius ~5 m, so a "square" loop is in
-  practice a rounded loop; reactive return drifts (hence beam planning for precision).
+  practice a rounded loop; reactive return drifts (hence A\* planning for precision).
 - Jump heights are low (data are small hops) ⇒ low boxes.
-- MM currently has no beam planner; the same-box guarantee is shown with MG only (a
-  trajectory-optimizing beam over the MM feature DB would give MM the same guarantee).
+- MM currently has no A\* planner; the same-box guarantee is shown with MG only (an
+  A\* search over the MM feature DB would give MM the same guarantee).
 
 ---
 
@@ -241,7 +249,8 @@ border + banner on each non-consecutive (transition) frame.
 | SMOOTH_WINDOW | 9 | root de-jitter |
 | MG n_neighbors / tgt_stride | 16 / 2 (28 / 1 for loop) | graph build |
 | pca_dim / tau_factor | 16 / 2.5 | graph build |
-| plan_to beam / K | 64 / 10 | beam search |
+| plan_to K / reach / budget | 10 / 0.7 m / 20000 | A\* planning |
+| plan_to w_pos/w_yaw/w_pose/cmd_w | 1.5 / 0.4 / 0.15 / 0.4 | A\* cost+heuristic |
 | PHASE_READY/TAKEOFF/TOUCHDOWN/AFTER | 12 / 10 / 6 / 18 | jump phases |
 | foot_thr | 0.13 m | flight detection |
 | box hx/hy | 0.13 / 0.28 m | box heuristic |
@@ -260,7 +269,7 @@ motiongraph/
   commands.py       SpeedCommand -> predicted trajectory
   jumps.py          jump entries confined to `ready` (+ land/apex maps)
   motion_matching.py  feature DB + NN controller (+ jump_at)
-  motion_graph.py   descriptor/edges, greedy follow_command/route, beam plan_to, jump
+  motion_graph.py   descriptor/edges, greedy follow_command/route, A* plan_to, jump
   footlock.py       foot-lock IK (sole-sphere DLS)
   cleanup.py        root de-jitter -> foot-lock
   render.py         offline MuJoCo -> MP4 (HUD, transition flash, boxes)

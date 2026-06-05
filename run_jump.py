@@ -168,7 +168,7 @@ def _place(seg, end_xy, end_yaw):
 
 
 def _plan_jump(g, start_frame, cur_xy, cur_yaw, box, seconds=6.0):
-    """Beam-plan a precise in-between to a jump's pre-take-off entry placed so the apex
+    """A*-plan a precise in-between to a jump's pre-take-off entry placed so the apex
     lands on `box`, then play the jump. Returns the world segment + end state + entry."""
     entry, land = g.best_jump_entry(int(start_frame))
     apex = g.jump_apex_of[entry]
@@ -188,7 +188,7 @@ def _plan_jump(g, start_frame, cur_xy, cur_yaw, box, seconds=6.0):
 
 def gen_loop_same_box(g, box=(5.0, 0.0), clean=True):
     """HARD constraint: jump over ONE box, loop, jump over the SAME box again. Both jump
-    approaches are BEAM-PLANNED in-betweens to the jump's pre-take-off entry pose (precise,
+    approaches are A*-PLANNED in-betweens to the jump's pre-take-off entry pose (precise,
     no drift), so both apexes land on the same box; the loop between is the greedy graph."""
     box = np.asarray(box, float)
     seg1, F1, xy1, yaw1, e1, tf1 = _plan_jump(g, START, np.zeros(2), 0.0, box)   # jump 1
@@ -226,7 +226,7 @@ if __name__ == "__main__":
     if which == "loop":                                  # jump -> loop -> jump (two jumps)
         out, mk, tr, bx = gen_loop(MotionGraph(lib))
         render_qpos(out, f"{C.OUT_DIR}/jump_mg_loop_twice.mp4", markers_fn=mk, trace=tr, boxes=bx)
-    if which == "samebox":                               # SAME box twice (loop + beam-planned return)
+    if which == "samebox":                               # SAME box twice (loop + A*-planned return)
         g = MotionGraph(lib, n_neighbors=28, tgt_stride=1)
         out, mk, tr, bx = gen_loop_same_box(g)
         render_qpos(out, f"{C.OUT_DIR}/jump_mg_samebox_twice.mp4", markers_fn=mk, trace=tr, boxes=bx)

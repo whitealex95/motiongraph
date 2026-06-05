@@ -2,8 +2,8 @@
 
   task1: greedy command following -- walk the graph, at each decision point taking
          the edge whose motion best matches the commanded velocity.
-  task2: in-betweening by beam search -- plan an edge sequence that arrives at a
-         terminal state at a fixed time.
+  task2: in-betweening by A* search -- plan a least-cost edge sequence that arrives
+         at a terminal state at a fixed time.
 
 The gen_* functions return (qpos_sequence, markers_fn) for tools/diagnose.py.
 

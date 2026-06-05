@@ -160,17 +160,20 @@ made them all look "forward" and prevented steering). On a transition, `A` is re
 so frame `j` lands on the current world pose (C0-continuous) and the pose is cross-faded;
 the switch penalty biases toward long continuous fragments.
 
-**Task 2 — in-betweening (beam search).** We plan an edge sequence that arrives at the
-terminal at a fixed time. A search node is `(frame, A, world_xy, world_yaw, t, cost)`;
-each macro-step plays `K` frames along an edge. Step cost is
-`cmd_w·‖avg_world_vel − desired‖ + transition_penalty`, where `desired` follows the
-speed command while cruising and switches to **reach-target pacing** in the final `tail`
-seconds (toward the target at `remaining_distance / remaining_time`, capped at
-`max_speed`) so the path genuinely arrives. After each round we keep the best `beam`
-nodes by `cost + admissible_distance_heuristic` (`max(0, dist_to_target −
-max_speed·time_left)`). When `t ≥ N`, the goal cost adds
-`w_pos·‖xy−target‖ + w_yaw·|Δyaw| + w_pose·pose_dist(frame, terminal)`; the best leaf is
-back-tracked, replayed with blends, and eased onto the terminal.
+**Task 2 — in-betweening (A\* search).** We plan a least-cost edge sequence that arrives
+at the target pose. A search node is `(frame, A, world_xy, world_yaw, t, g)`; each
+macro-step plays `K` frames along an edge with step cost
+`g += cmd_w·‖avg_world_vel − go-to-target_vel‖ + transition_penalty` (the go-to-target
+velocity steers toward the target at `cruise` speed, so wandering is penalized). A\* runs
+best-first over a priority queue ordered by `f = g + h`, with the **goal-distance
+heuristic** `h = w_pos·‖xy − target‖` pulling the frontier toward the target. A node
+within `reach` of the target is a goal; its `g` absorbs
+`w_pos·‖xy−target‖ + w_yaw·|Δyaw| + w_pose·pose_dist(frame, terminal)`, and the first goal
+popped (lowest `f`) is back-tracked, replayed with blends, and eased onto the terminal. A
+discretized closed set `(frame, round(xy), round(yaw))` plus an expansion budget keep the
+effectively-infinite state space finite. (A zero heuristic would make A\* = Dijkstra and,
+given the ~28-edge branching, exhaust the budget only halfway to the goal — the heuristic
+is what makes it arrive. This planner replaced an earlier beam search.)
 
 ### Motion quality (`cleanup.py`, `footlock.py`, `tools/diagnose.py`)
 
@@ -291,7 +294,7 @@ motiongraph/
   commands.py           speed command -> predicted trajectory
   render.py             offline MuJoCo -> MP4 renderer
   motion_matching.py    feature DB + nearest-neighbour controller
-  motion_graph.py       transition graph + greedy follower + beam planner + jump skill
+  motion_graph.py       transition graph + greedy follower + A* planner + jump skill
   footlock.py           foot-lock IK (sole-sphere pin via damped least squares)
   cleanup.py            post-process: root de-jitter -> foot-lock
   jumps.py              shared pre-take-off jump-entry index (MM + MG)
@@ -330,7 +333,7 @@ outputs/                rendered MP4s + diag_*.png + *.html (git-ignored)
 3. Verified headless rendering and that the menagerie G1 joint order matches the CSV.
 4. Built the data pipeline (download → library with FK foot positions) and renderer.
 5. Implemented motion matching (features, command, NN controller) + both tasks.
-6. Implemented the motion graph (descriptor, PCA+KDTree transitions, greedy + beam)
+6. Implemented the motion graph (descriptor, PCA+KDTree transitions, greedy + A*)
    + both tasks. Cached the graph; reduced descriptor dimensionality after finding
    62-D KDTree queries were near-brute-force.
 7. Rendered all four demos and wrote this README.

@@ -6,10 +6,11 @@ to its successor. Walking the graph yields novel motion built from clip fragment
 
   task1: greedy command following -- at decision points pick the edge whose motion
          best matches the commanded velocity.
-  task2: beam search planning -- find an edge sequence that arrives at a terminal
+  task2: A* planning -- find a least-cost edge sequence that arrives at a terminal
          pose/position at a fixed time (motion in-betweening).
 """
 import os
+import heapq
 import pickle
 import numpy as np
 from scipy.spatial import cKDTree
@@ -357,7 +358,7 @@ class MotionGraph:
             return out, state
         return out
 
-    # --- task2: beam-search planning to a terminal state (in-betweening) -----
+    # --- task2: A* planning to a terminal state (in-betweening) -----
     def _pose_dist(self, a, b):
         return float(np.linalg.norm(self.qpos[a, C.JOINTS] - self.qpos[b, C.JOINTS]))
 
@@ -373,54 +374,64 @@ class MotionGraph:
         return opts
 
     def plan_to(self, command, seconds, start_frame, target_xy, target_yaw, term_frame,
-                K=None, beam=64, w_pos=1.5, w_yaw=0.4, w_pose=0.15, cmd_w=0.4,
-                max_speed=3.0, tail=2.5):
-        """Beam search for an edge sequence that reaches the terminal at time `seconds`.
+                K=None, max_expansions=20000, w_pos=1.5, w_yaw=0.4, w_pose=0.15, cmd_w=0.4,
+                cruise=1.0, reach=0.7):
+        """A* search for a least-cost edge sequence that arrives at the target pose.
 
-        Desired velocity follows the speed command while cruising, then switches to
-        reach-target pacing (toward the target at remaining_distance / remaining_time)
-        for the final `tail` seconds, so the path actually arrives. Cost = velocity
-        tracking + transition penalties; goal cost adds endpoint pose/position error.
+        Best-first over a priority queue ordered by f = g + h:
+          g = cost-so-far = Σ ( cmd_w·‖segment_vel − go-to-target_vel‖ + transition penalty ),
+              so wandering is expensive and progress toward the target is cheap;
+          h = w_pos · ‖xy − target‖  -- a goal-distance heuristic that pulls the frontier
+              toward the target (goal-directed / weighted A*; on this effectively-infinite
+              state space a zero heuristic degenerates to Dijkstra and never arrives).
+        A node is a GOAL once it is within `reach` of the target; its g then absorbs the
+        goal cost w_pos·‖xy−target‖ + w_yaw·|Δyaw| + w_pose·pose-distance, and the first
+        goal popped is returned. A discretized closed set (frame, world xy/yaw) collapses
+        revisits; `seconds`·1.5 caps the horizon and an expansion budget guarantees
+        termination. The winning chain is replayed and eased onto the exact terminal pose.
         """
         K = K or C.SEARCH_INTERVAL
-        N = int(seconds * C.FPS)
+        Nmax = int(seconds * C.FPS * 1.5)                   # horizon cap (target should arrive first)
         target_xy = np.asarray(target_xy, float)
 
-        def desired_vel(xy_end, t_end):
-            tsec = t_end * C.DT
-            if tsec < seconds - tail:
-                return command.desired_velocity(tsec)
-            d = target_xy - xy_end                          # steer onto the target
-            rem_t = max(C.DT, seconds - tsec)
+        def want_vel(xy):                                   # go-to-point: cruise toward the target
+            d = target_xy - xy
             n = np.linalg.norm(d)
-            return (min(max_speed, n / rem_t) * d / n) if n > 1e-6 else np.zeros(2)
-        # node = [cur, align, xy, yaw, t, cost, parent, start_frame, is_jump]
+            return (cruise * d / n) if n > 1e-6 else np.zeros(2)
+
+        def goal_cost(xy, yaw, frame):
+            return (w_pos * float(np.linalg.norm(xy - target_xy))
+                    + w_yaw * abs(_angdiff(yaw, target_yaw)) + w_pose * self._pose_dist(frame, term_frame))
+
+        # node = [cur, align, xy, yaw, t, g, parent, start_frame, is_jump]
         a0 = (-self.yaw[start_frame], self.xy[start_frame].copy(), np.zeros(2))
         x0 = transform_qpos(self.qpos[start_frame], *a0)[0]
         nodes = [[start_frame, a0, x0[:2], self.yaw[start_frame] + a0[0], 0, 0.0, -1, start_frame, False]]
-        frontier, best, best_cost = [0], None, 1e9
+        pq = [(w_pos * float(np.linalg.norm(nodes[0][2] - target_xy)), 0)]   # (f = g + h, node id)
+        seen, best, best_g, used = set(), 0, 1e9, 0         # best=0 (start) is the always-valid fallback
 
-        while frontier:
-            nxt = []
-            for nid in frontier:
-                cur, align, xy, yaw, t, cost, _, _, _ = nodes[nid]
-                if t >= N:
-                    gc = (cost + w_pos * np.linalg.norm(xy - target_xy)
-                          + w_yaw * abs(_angdiff(yaw, target_yaw)) + w_pose * self._pose_dist(cur, term_frame))
-                    if gc < best_cost:
-                        best_cost, best = gc, nid
-                    continue
-                for start, al, jump, pen in self._options(cur, xy, yaw, align):
-                    world, exy, eyaw, last = self._play(start, K, al)
-                    avgv = (exy - world[0, :2]) / (max(len(world), 1) * C.DT)
-                    want = desired_vel(exy, t + len(world))
-                    sc = cost + cmd_w * np.linalg.norm(avgv - want) + pen
-                    nodes.append([last, al, exy, eyaw, t + len(world), sc, nid, start, jump])
-                    nxt.append(len(nodes) - 1)
-            # prune by cost + admissible distance-to-go heuristic
-            nxt.sort(key=lambda n: nodes[n][5] + w_pos * max(
-                0.0, np.linalg.norm(nodes[n][2] - target_xy) - max_speed * (N - nodes[n][4]) * C.DT))
-            frontier = nxt[:beam]
+        while pq and used < max_expansions:
+            _, nid = heapq.heappop(pq)
+            cur, align, xy, yaw, t, g, _, _, _ = nodes[nid]
+            if float(np.linalg.norm(xy - target_xy)) < reach or t >= Nmax:
+                best = nid                                  # first goal popped == lowest f
+                break
+            key = (cur, round(float(xy[0]), 1), round(float(xy[1]), 1), round(float(yaw), 1))
+            if key in seen:
+                continue
+            seen.add(key); used += 1
+            for start, al, jump, pen in self._options(cur, xy, yaw, align):
+                world, exy, eyaw, last = self._play(start, K, al)
+                te = t + len(world)
+                avgv = (exy - world[0, :2]) / (max(len(world), 1) * C.DT)
+                ng = g + cmd_w * float(np.linalg.norm(avgv - want_vel(world[0, :2]))) + pen
+                arrived = float(np.linalg.norm(exy - target_xy)) < reach
+                if arrived:                                 # absorb the goal cost at arrival
+                    ng += goal_cost(exy, eyaw, last)
+                    if ng < best_g:                         # cheapest arrival = fallback if budget runs out
+                        best_g, best = ng, len(nodes)
+                nodes.append([last, al, exy, eyaw, te, ng, nid, start, jump])
+                heapq.heappush(pq, (ng + w_pos * float(np.linalg.norm(exy - target_xy)), len(nodes) - 1))
 
         return self._reconstruct(best, nodes, K, target_xy, target_yaw, term_frame)
 

@@ -3,7 +3,7 @@
   exp1: walk the path (0,0)->(6,0)->(6,6)->(0,6)->(0,0)->(6,0).
   exp2: same path, but a box at (3,0) (crossed twice) the robot must jump over.
 
-MG traces the path with BEAM-PLANNED corner-to-corner navigation (plan_to) and beam-plans
+MG traces the path with A*-PLANNED corner-to-corner navigation (plan_to) and A*-plans
 each jump approach, so corners are hit and jumps land on the box. MM has no planner, so it
 follows the path reactively (go-to-point command) -- approximate, and its box jumps are
 best-effort (documented limitation).
@@ -46,7 +46,7 @@ def _box_dict(g):
                 rgba=[0.96, 0.45, 0.10, 1.0], label=f"BOX ({BOX[0]:.0f}, {BOX[1]:.0f})")
 
 
-# ---------------- motion graph (beam-planned) ----------------
+# ---------------- motion graph (A*-planned) ----------------
 def _mg_plan_walk(g, F, cxy, cyaw, txy, tyaw, sec=8.0):
     rel = rotz(-cyaw) @ (np.asarray(txy, float) - cxy)
     loc = g.plan_to(CMD, sec, int(F), rel, float(tyaw - cyaw), int(F))
