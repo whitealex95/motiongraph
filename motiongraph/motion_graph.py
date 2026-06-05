@@ -238,16 +238,14 @@ class MotionGraph:
             out.append(world); tframe.append(cur); tphase.append(int(self.skill[cur]))
 
             if not did and step >= int(jump_at * C.FPS) and locked == 0:
-                je = self.best_jump_entry(cur)                  # transition into the jump run-up
+                je = self.best_jump_entry(cur)                  # enter via the `ready` run-up
                 if je:
                     entry, land = je
                     align = alignment_to(self.xy[entry], self.yaw[entry], cwx, cwy)
                     frozen, blend_left = world.copy(), C.BLEND_FRAMES
-                    # ride the (straight) walk->jump->walk clip from the run-up to its end,
-                    # so the post-landing walk stays straight instead of returning to the
-                    # curvier base clip; cap at the remaining demo length.
-                    to_end = self.lengths[self.clip_id[entry]] - 1 - self.fic[entry]
-                    cur, locked, did = entry, min(to_end, n - step), True
+                    # ride ready -> take-off -> flight -> touchdown -> after, then resume walk
+                    after_end = land + 1 + C.PHASE_TOUCHDOWN + C.PHASE_AFTER
+                    cur, locked, did = entry, min(after_end - entry, n - step), True
                     step += 1
                     continue
             if locked > 0:                                       # play the jump straight through
@@ -324,7 +322,8 @@ class MotionGraph:
                     entry, land = je
                     align = alignment_to(self.xy[entry], self.yaw[entry], cwx, cwy)
                     frozen, blend_left = world.copy(), C.BLEND_FRAMES
-                    cur, locked = entry, (land + land_pad) - entry   # ride only through landing
+                    after_end = land + 1 + C.PHASE_TOUCHDOWN + C.PHASE_AFTER   # ride through `after`
+                    cur, locked = entry, after_end - entry
                     prev_wp = np.array([tx, ty])
                     step += 1
                     continue

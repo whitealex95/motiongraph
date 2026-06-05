@@ -72,13 +72,13 @@ class MotionMatcher:
             out.append(world); tframe.append(cur)
 
             if jump_at is not None and not did and step >= int(jump_at * C.FPS) and locked == 0:
-                je = self.best_jump_entry(cur)              # match into the pre-take-off run-up
+                je = self.best_jump_entry(cur)              # enter via the `ready` run-up
                 if je:
                     entry, land = je
                     dyaw, pivot, offset = alignment_to(self.xy[entry], self.yaw[entry], cwx, cwy)
                     frozen, blend_left = world.copy(), C.BLEND_FRAMES
-                    to_end = self.lengths[self.clip_id[entry]] - 1 - self.fic[entry]
-                    cur, locked, did = entry, min(to_end, n - step), True
+                    after_end = land + 1 + C.PHASE_TOUCHDOWN + C.PHASE_AFTER   # ready..after, then walk
+                    cur, locked, did = entry, min(after_end - entry, n - step), True
                     continue
             if locked > 0:                                  # ride the jump clip through landing
                 if not self._is_clip_end(cur):

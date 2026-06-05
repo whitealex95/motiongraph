@@ -17,6 +17,15 @@ JUMP_BASE_WALK = "walk1_subject2"                       # rich locomotion base (
 JUMP_CLIPS = ["walk_jump_walk", "walk_jump_walk2", "walk_jump_stop"]   # from JUMP_DATA_DIR
 SKILLS = ["walk", "jump"]
 
+# Per-frame jump phase (5 phases + walk). Flight = both feet airborne; the window
+# lengths (frames) carve the surrounding run-up / push-off / landing into phases.
+# Controllers may ENTER a jump only in `ready` and EXIT only after `after`.
+JUMP_PHASES = ["walk", "ready", "takeoff", "flight", "touchdown", "after"]
+PHASE_READY = 12       # run-up before the push-off (the only place to enter a jump)
+PHASE_TAKEOFF = 10     # push-off / loading on the ground, just before lift-off
+PHASE_TOUCHDOWN = 6    # landing impact (just after the feet hit)
+PHASE_AFTER = 18       # landing absorption / recovery walk (the only place to exit)
+
 # CSV / qpos layout. Dataset row = [pos(3), quat_xyzw(4), joints(29)] = 36.
 # MuJoCo free-joint qpos = [pos(3), quat_wxyz(4), joints(29)] = 36 (same joint order).
 NQ = 36

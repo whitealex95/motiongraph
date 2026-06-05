@@ -14,31 +14,41 @@ def _load_clip(name, data_dir=C.DATA_DIR, trim=C.TRIM):
     return csv_to_qpos(rows)  # (T, 36) wxyz
 
 
-def _label_jump(model, q, foot_thr=0.13, takeoff_pad=14, land_pad=12, entry_pad=6):
-    """Per-frame skill (0 walk, 1 jump) + (entry, takeoff, land) for each jump.
+def _label_jump(model, q, foot_thr=0.13):
+    """Per-frame skill (0 walk, 1 jump) + per-frame 5-phase label + jump indices.
 
-    Flight = both feet above foot_thr; the jump skill is padded back over the
-    takeoff crouch and forward over the landing. The entry frame is a still-walking
-    frame just before the crouch -- a good place to commit to a jump from walking.
+    Flight = both feet above foot_thr. Around each flight we carve five phases:
+      ready [enter here] | takeoff (push-off) | flight | touchdown | after [exit here].
+    skill=1 over the whole ready..after span so normal locomotion never targets jump
+    frames (a jump is entered only via the `ready` run-up).
     """
+    READY, TAKEOFF, FLIGHT, TOUCHDOWN, AFTER = 1, 2, 3, 4, 5
     feet = model.fk_feet(q)
     footz = feet[:, :, 2].min(1)
     air = footz > foot_thr
     idx = np.where(air)[0]
-    skill = np.zeros(len(q), np.int32)
-    jumps = []                                       # (entry, takeoff, land, continues) local
+    n = len(q)
+    skill = np.zeros(n, np.int32)
+    phase = np.zeros(n, np.int32)                    # 0 = walk
+    jumps = []                                       # (entry, takeoff, land, continues, apex, box)
     if len(idx):
         for s in np.split(idx, np.where(np.diff(idx) > 3)[0] + 1):
             if len(s) < 3:
                 continue
-            takeoff, land = int(s[0]), int(s[-1])
-            a, b = max(0, takeoff - takeoff_pad), min(len(q), land + land_pad)
-            skill[a:b] = 1
-            w0, w1 = min(land + 40, len(q) - 1), min(land + 60, len(q) - 1)   # settled post-landing
+            t, l = int(s[0]), int(s[-1])             # take-off (flight start), land (flight end)
+            r0 = max(0, t - C.PHASE_TAKEOFF - C.PHASE_READY)   # ready start = jump entry
+            a1 = min(n, l + 1 + C.PHASE_TOUCHDOWN + C.PHASE_AFTER)  # after end
+            phase[r0:t - C.PHASE_TAKEOFF] = READY
+            phase[t - C.PHASE_TAKEOFF:t] = TAKEOFF
+            phase[t:l + 1] = FLIGHT
+            phase[l + 1:l + 1 + C.PHASE_TOUCHDOWN] = TOUCHDOWN
+            phase[l + 1 + C.PHASE_TOUCHDOWN:a1] = AFTER
+            skill[r0:a1] = 1
+            w0, w1 = min(l + 40, n - 1), min(l + 60, n - 1)      # settled post-landing
             continues = w1 > w0 and np.linalg.norm(q[w1, 0:2] - q[w0, 0:2]) / ((w1 - w0) * C.DT) > 0.5
-            box = _heuristic_box(q, feet, takeoff, land)                      # box this jump clears
-            jumps.append((max(0, a - entry_pad), takeoff, land, bool(continues)) + box)
-    return skill, jumps
+            apex, hx, hy, hz = _heuristic_box(q, feet, t, l)     # box this jump clears
+            jumps.append((r0, t, l, bool(continues), apex, hx, hy, hz))
+    return skill, phase, jumps
 
 
 def _heuristic_box(q, feet, takeoff, land, hx=0.13, hy=0.28, margin=0.92, hmin=0.13, hmax=0.24):
@@ -97,14 +107,14 @@ def build_jump_library(out=C.JUMP_LIB_PATH):
     specs = [(C.JUMP_BASE_WALK, C.DATA_DIR, C.TRIM)] + \
             [(c, C.JUMP_DATA_DIR, 0) for c in C.JUMP_CLIPS]
     qpos, clip_id, frame_in_clip, lengths, names = [], [], [], [], []
-    skill, j_entry, j_takeoff, j_land, j_cont, j_apex, j_box = [], [], [], [], [], [], []
+    skill, phase, j_entry, j_takeoff, j_land, j_cont, j_apex, j_box = [], [], [], [], [], [], [], []
     off = 0
     for cid, (name, d, trim) in enumerate(specs):
         if not os.path.exists(os.path.join(d, name + ".csv")):
             continue
         q = _load_clip(name, d, trim)
-        sk, jumps = _label_jump(model, q)
-        qpos.append(q); skill.append(sk)
+        sk, ph, jumps = _label_jump(model, q)
+        qpos.append(q); skill.append(sk); phase.append(ph)
         clip_id.append(np.full(len(q), cid)); frame_in_clip.append(np.arange(len(q)))
         lengths.append(len(q)); names.append(name)
         for e, t, l, cont, apex, hx, hy, hz in jumps:    # store as global frame indices
@@ -125,6 +135,7 @@ def build_jump_library(out=C.JUMP_LIB_PATH):
         lengths=np.array(lengths, np.int32),
         clip_names=np.array(names),
         skill=np.concatenate(skill).astype(np.int32),
+        phase=np.concatenate(phase).astype(np.int32),
         jump_entry=np.array(j_entry, np.int32),
         jump_takeoff=np.array(j_takeoff, np.int32),
         jump_land=np.array(j_land, np.int32),

@@ -178,9 +178,10 @@ def _plan_jump(g, start_frame, cur_xy, cur_yaw, box, seconds=6.0):
     approach = _place(local, cur_xy, cur_yaw)
     e_xy, e_yaw = approach[-1, :2], _yaw(approach[-1])
     dy, pv, of = alignment_to(g.xy[entry], g.yaw[entry], e_xy, e_yaw)
-    jump = transform_qpos(g.qpos[np.arange(entry, land + 30)], dy, pv, of)
+    after_end = land + 1 + C.PHASE_TOUCHDOWN + C.PHASE_AFTER       # ready..after
+    jump = transform_qpos(g.qpos[np.arange(entry, after_end)], dy, pv, of)
     seg = np.concatenate([approach, jump])
-    tf = np.concatenate([np.full(len(approach), entry), np.arange(entry, land + 30)])
+    tf = np.concatenate([np.full(len(approach), entry), np.arange(entry, after_end)])
     return seg, int(land + 29), seg[-1, :2], _yaw(seg[-1]), entry, tf
 
 
