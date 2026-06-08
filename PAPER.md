@@ -108,8 +108,26 @@ the feature-NN of the current frame instead of MG's precomputed edges.
   neighbours within an adaptive radius `τ = median(NN1)·2.5` become directed transition
   edges (a good blend point); every frame also has its successor edge. Normal transition
   **targets exclude jump frames** (`skill==1`) so locomotion never produces a jump.
-  Cached per library size. Default `n_neighbors=16`; the loop/same-box demos use
-  `n_neighbors=28, tgt_stride=1` (denser ⇒ tighter turns).
+  Cached per `(library size, descriptor)`. Default `n_neighbors=16`; the loop/same-box and
+  path demos use `n_neighbors=28, tgt_stride=1` (denser ⇒ tighter turns).
+- **Descriptor & edge-density ablation** (`tools/descriptor_ablation.py`,
+  `tools/compare_descriptors.py`). Cut "pop" = joint-space L2 at a transition, upper body (12:):
+
+  | descriptor | all-edge up (mean/p90) | best cut/node | taken (greedy) |
+  |---|---|---|---|
+  | `joint_pca` (16-D) | 0.434 / 0.663 | 0.311 | 0.093 |
+  | `mm_pose` (15-D) | 0.588 / 1.010 | 0.378 | 0.109 |
+  | `mm_pose_vh` (17-D) | 0.578 / 0.982 | 0.372 | **0.099** |
+
+  - *Velocity+height helps the realized motion:* appending root height + yaw rate barely moves
+    the average edge but drops the **taken** cut 0.109→0.099 (≈ `joint_pca`'s 0.093) — turn-rate
+    continuity stops splicing opposite turns. It can't fix arms it never sees, so it doesn't
+    reach `joint_pca`.
+  - *More edges do **not** fix the pop:* `n_neighbors` 16→120 (mm_pose) grows edges 43k→460k;
+    the *best* cut/node improves (0.40→0.33, more choice) but the *average* edge worsens
+    (0.58→0.71) and the **taken** cut stays flat (~0.09–0.12) — greedy selects by velocity, not
+    continuity. More edges buy routing flexibility, not smoother blends; the descriptor (or
+    continuity-aware selection) is what matters.
 - **Greedy following** (`follow_command`/`follow_route`). State = (frame `i`, alignment
   `A`). Every `SEARCH_INTERVAL` frames choose over `{continue} ∪ {transitions}`:
   `cost(f) = ‖v_local(f) − w_local‖ + penalty(f)`, where `v_local(f)` is `f`'s **intrinsic**

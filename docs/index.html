@@ -144,6 +144,27 @@ upper-body discontinuity than the alternative full-joint descriptor — the cros
 jump approaches (see below).</li>
 </ul>
 
+<h3>Descriptor ablation — what actually reduces the cut "pop"?</h3>
+<p>Stress test (forced transition every 8 frames, short cross-fade) of three descriptors, close-up. The number that
+matters is the <b>joint discontinuity at a cut</b> (L2, rad), split into legs vs upper body:</p>
+<video src="videos/compare_descriptors.mp4" autoplay muted loop playsinline style="max-width:760px"></video>
+<table>
+<tr><th>descriptor</th><th>dim</th><th>upper-body gap, all edges (mean / p90)</th><th>best cut available / node</th><th>cut taken by greedy</th></tr>
+<tr><td><code>joint_pca</code> (full body)</td><td>16</td><td>0.434 / 0.663</td><td>0.311</td><td>0.093</td></tr>
+<tr><td><code>mm_pose</code> (feet only)</td><td>15</td><td>0.588 / 1.010</td><td>0.378</td><td>0.109</td></tr>
+<tr><td><code>mm_pose_vh</code> (+ height + yaw-rate)</td><td>17</td><td>0.578 / 0.982</td><td>0.372</td><td><b>0.099</b></td></tr>
+</table>
+<p class="legend"><b>Adding velocity &amp; height helps the realized motion.</b> <code>mm_pose_vh</code> appends root height
+and yaw-rate to the feet feature. It barely changes the average edge, but the cuts greedy <i>actually takes</i> drop
+from 0.109 → 0.099 rad — nearly matching the full-body descriptor (0.093) — because turn-rate continuity stops it from
+splicing a left turn into a right one. It still can't fix arms it never sees, so it doesn't reach <code>joint_pca</code>.</p>
+<div class="note"><b>Does adding far more edges help? No — not the pop.</b> Sweeping <code>n_neighbors</code> 16→120 (and a
+looser radius) on <code>mm_pose</code> grows the graph 43k→460k edges. The <i>best</i> cut available per node improves
+(0.40→0.33, more choice), but the <i>average</i> edge gets <span class="bad">worse</span> (0.58→0.71, looser cuts
+admitted) and the cuts greedy actually takes stay flat (~0.09–0.12) — because the controller selects by velocity/goal,
+not by upper-body continuity. So more edges buys routing flexibility, not smoother blends; what fixes the pop is a
+better <b>descriptor</b> (or selecting edges <i>for</i> continuity), not more of them.</div>
+
 <h3>A* planning — and how it differs from beam search</h3>
 <p>We plan a least-cost sequence of graph moves that <b>arrives at a target</b> <i>(position, facing, pose)</i>. The
 graph node is <code>(clip&nbsp;frame, world placement)</code>; an edge is a <i>macro-step</i> (replay K=10 frames along

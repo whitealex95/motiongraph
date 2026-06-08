@@ -40,11 +40,26 @@ def _descriptors(lib):
     return (desc - desc.mean(0)) / (desc.std(0) + 1e-6)
 
 
-def _mm_pose_descriptor(lib):
+def _yaw_rate(lib):
+    """Per-clip yaw rate (rad/s), so transitions can avoid splicing opposite turns."""
+    yaw, N = lib["yaw"], len(lib["yaw"])
+    yr = np.zeros(N, np.float32)
+    for cid in np.unique(lib["clip_id"]):
+        idx = np.where(lib["clip_id"] == cid)[0]
+        nxt = np.minimum(idx + 1, idx[-1])
+        yr[idx] = ((yaw[nxt] - yaw[idx] + np.pi) % (2 * np.pi) - np.pi) / C.DT
+    return yr
+
+
+def _mm_pose_descriptor(lib, add_vh=False):
     """MM's pose feature (feet local pos/vel + root vel, 15-D), z-scored. Using this as the
-    MG transition descriptor makes graph edges live in the SAME pose space MM matches on."""
+    MG transition descriptor makes graph edges live in the SAME pose space MM matches on.
+    add_vh appends root height (z) + yaw rate -- explicit height & turn-velocity the local
+    feet feature underrepresents (the "mm_pose_vh" variant)."""
     from . import features as F
-    raw = F.compute_features(lib)[:, F.TRAJ_DIM:]            # drop trajectory, keep pose
+    raw = F.compute_features(lib)[:, F.TRAJ_DIM:]           # drop trajectory, keep pose (15-D)
+    if add_vh:
+        raw = np.concatenate([raw, lib["qpos"][:, 2:3], _yaw_rate(lib)[:, None]], 1)
     return ((raw - raw.mean(0)) / (raw.std(0) + 1e-6)).astype(np.float32)
 
 
@@ -52,6 +67,8 @@ def mg_descriptor(lib, mode):
     """Embedding the motion graph builds transitions on (see config.MG_DESCRIPTOR)."""
     if mode == "mm_pose":
         return _mm_pose_descriptor(lib)                     # 15-D, already low-dim -> no PCA
+    if mode == "mm_pose_vh":
+        return _mm_pose_descriptor(lib, add_vh=True)        # 17-D: + root height + yaw rate
     desc = _descriptors(lib)                                # 62-D joint pose+velocity ...
     X = desc - desc.mean(0)
     _, _, Vt = np.linalg.svd(X, full_matrices=False)
