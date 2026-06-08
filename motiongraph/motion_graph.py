@@ -40,23 +40,39 @@ def _descriptors(lib):
     return (desc - desc.mean(0)) / (desc.std(0) + 1e-6)
 
 
+def _mm_pose_descriptor(lib):
+    """MM's pose feature (feet local pos/vel + root vel, 15-D), z-scored. Using this as the
+    MG transition descriptor makes graph edges live in the SAME pose space MM matches on."""
+    from . import features as F
+    raw = F.compute_features(lib)[:, F.TRAJ_DIM:]            # drop trajectory, keep pose
+    return ((raw - raw.mean(0)) / (raw.std(0) + 1e-6)).astype(np.float32)
+
+
+def mg_descriptor(lib, mode):
+    """Embedding the motion graph builds transitions on (see config.MG_DESCRIPTOR)."""
+    if mode == "mm_pose":
+        return _mm_pose_descriptor(lib)                     # 15-D, already low-dim -> no PCA
+    desc = _descriptors(lib)                                # 62-D joint pose+velocity ...
+    X = desc - desc.mean(0)
+    _, _, Vt = np.linalg.svd(X, full_matrices=False)
+    return (X @ Vt[:16].T).astype(np.float32)               # ... reduced to 16-D by PCA
+
+
 class MotionGraph:
     def __init__(self, lib, n_neighbors=16, src_stride=2, tgt_stride=2, pca_dim=16,
-                 tau_factor=2.5, min_z=0.6, cache=True):
+                 tau_factor=2.5, min_z=0.6, cache=True, desc_mode=None):
         self.lib = lib
         self.qpos, self.yaw = lib["qpos"], lib["yaw"]
         self.xy = lib["qpos"][:, 0:2]
         self.fic, self.lengths, self.clip_id = lib["frame_in_clip"], lib["lengths"], lib["clip_id"]
         self.skill = lib["skill"] if "skill" in lib else np.zeros(len(self.qpos), np.int32)
 
-        # PCA-reduce the 62-d descriptor (always available, also used for skill matching).
-        desc = _descriptors(lib)
-        X = desc - desc.mean(0)
-        _, _, Vt = np.linalg.svd(X, full_matrices=False)
-        self.P = (X @ Vt[:pca_dim].T).astype(np.float32)
+        # Transition embedding: MM's pose feature (shared with MM) or the joint-PCA descriptor.
+        self.desc_mode = desc_mode or C.MG_DESCRIPTOR
+        self.P = mg_descriptor(lib, self.desc_mode)
 
-        cpath = os.path.join(C.ROOT, "data", f"motion_graph_{len(self.qpos)}.pkl")
-        key = (len(self.qpos), n_neighbors, src_stride, tgt_stride, pca_dim, tau_factor, min_z)
+        cpath = os.path.join(C.ROOT, "data", f"motion_graph_{len(self.qpos)}_{self.desc_mode}.pkl")
+        key = (len(self.qpos), n_neighbors, src_stride, tgt_stride, self.desc_mode, tau_factor, min_z)
         self.trans = None
         if cache and os.path.exists(cpath):
             with open(cpath, "rb") as f:

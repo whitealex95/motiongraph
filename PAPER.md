@@ -94,9 +94,16 @@ the feature-NN of the current frame instead of MG's precomputed edges.
 
 ## 5. Motion graph (`motion_graph.py`)
 
-- **Transition descriptor** (per frame): `[29 joint angles, joint velocities, root height,
-  root planar velocity, yaw rate]` (62-D), z-scored, **PCA-reduced to 16-D** (raw 62-D
-  KDTree queries are near-brute-force; 16-D build ≈ 4 s vs 174 s).
+- **Transition descriptor** (per frame, `config.MG_DESCRIPTOR`, default `"mm_pose"`):
+  - `"mm_pose"` — **MM's 15-D pose feature** (feet local pos/vel + root vel), z-scored. MG
+    edges then live in the *same* pose space MM matches on, so the two methods share one
+    representation. Low-dim ⇒ no PCA needed. *Trade-off:* it ignores arm/torso joint angles,
+    so edges have ~35 % larger upper-body joint discontinuity (mean 0.59 vs 0.43 rad L2,
+    p90 1.01 vs 0.66) than the joint descriptor — the 12-frame cross-fade absorbs it; path
+    quality (square, jumps) is unchanged.
+  - `"joint_pca"` — `[29 joint angles, joint velocities, root height, root planar velocity,
+    yaw rate]` (62-D), z-scored, **PCA-reduced to 16-D** (raw 62-D KDTree queries are
+    near-brute-force; 16-D build ≈ 4 s vs 174 s). Kovar-style full-body continuity.
 - **Edges.** For each (subsampled) source frame, the `n_neighbors` nearest descriptor
   neighbours within an adaptive radius `τ = median(NN1)·2.5` become directed transition
   edges (a good blend point); every frame also has its successor edge. Normal transition

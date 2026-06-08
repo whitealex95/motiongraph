@@ -131,13 +131,15 @@ library frame placed at the target via the same planar alignment used for stitch
 
 ### Motion graph (`motion_graph.py`)
 
-**Build.** A per-frame descriptor (29 joint angles, joint velocities, root height,
-root planar velocity, yaw rate) is z-scored and **PCA-reduced to 16-D** — without this,
-KDTree queries on the raw 62-D descriptor degrade to near-brute-force (the original
-build took 174 s; 16-D takes ~4 s). Frames whose descriptors are within an adaptive
-radius become directed **transition edges** `i→j` (a good blend point); every frame
-also has its natural successor `i→i+1`. The graph (`{i: [(j, dist), …]}`) is cached to
-`data/motion_graph.pkl`.
+**Build.** Edges connect frames whose **pose descriptors** are close. The descriptor is set
+by `config.MG_DESCRIPTOR` (default `"mm_pose"`): MG uses **MM's own 15-D pose feature** (feet
+local pos/vel + root vel), so the graph lives in the same pose space MM matches on. The
+alternative `"joint_pca"` is the full-body descriptor (29 joint angles, joint velocities,
+root height, planar velocity, yaw rate) z-scored and **PCA-reduced to 16-D** (raw 62-D KDTree
+queries are near-brute-force: 174 s → ~4 s). The feet-based default ignores arm/torso angles,
+so its edges have ~35 % larger upper-body discontinuity (the cross-fade absorbs it). Frames
+whose descriptors are within an adaptive radius become directed **transition edges** `i→j`;
+every frame also has its successor `i→i+1`. The graph is cached per `(size, descriptor)`.
 
 **Task 1 — command following (greedy).** The runtime state is `(frame i, world
 alignment A)`, where `A` is a planar yaw+translation mapping clip space to the world.

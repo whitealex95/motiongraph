@@ -19,7 +19,7 @@ from plotly.subplots import make_subplots
 
 from motiongraph import config as C
 from motiongraph.data import load_library
-from motiongraph.motion_graph import MotionGraph, _descriptors
+from motiongraph.motion_graph import MotionGraph
 from motiongraph.commands import SpeedCommand
 from motiongraph.cleanup import cleanup
 from motiongraph.g1_model import G1Model
@@ -66,9 +66,8 @@ def build(which="jump"):
         title = f"Motion graph on a single LAFAN1 walk sequence ({C.LOCO_CLIPS[0]})"
     out = cleanup(out, gm)
 
-    # 2-D pose-space embedding (PCA of the transition descriptor)
-    desc = _descriptors(lib)
-    X = desc - desc.mean(0)
+    # 2-D pose-space embedding (PCA of MG's own transition descriptor -> matches its edges)
+    X = g.P - g.P.mean(0)
     _, _, Vt = np.linalg.svd(X, full_matrices=False)
     P = X @ Vt[:2].T
     skill = g.skill

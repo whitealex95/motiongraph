@@ -37,6 +37,13 @@ JOINTS = slice(7, 36)
 # Foot bodies used for motion-matching pose features (names from menagerie g1.xml).
 FOOT_BODIES = ["left_ankle_roll_link", "right_ankle_roll_link"]
 
+# Motion-graph transition descriptor: which feature decides "can I splice frame i->j?".
+#   "mm_pose"   -- MM's 15-D pose feature (feet pos/vel + root vel); same representation MM
+#                  matches on, so MG and MM share the pose space (no PCA needed; low-dim).
+#   "joint_pca" -- the 62-D joint pose+velocity descriptor reduced to 16-D by PCA (Kovar-style
+#                  full-body continuity).
+MG_DESCRIPTOR = "mm_pose"
+
 # Motion-matching feature config.
 TRAJ_HORIZONS = [10, 20, 30]   # future sample frames (~0.33/0.67/1.0 s ahead)
 SEARCH_INTERVAL = 10           # motion-graph decision interval (frames, ~0.33 s)

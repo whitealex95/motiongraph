@@ -132,8 +132,12 @@ runtime), computed on the fly from the KD-tree. This is what lets reactive MM al
 
 <h3>Motion graph (MG)</h3>
 <ul>
-<li><b>Edges:</b> a per-frame pose+velocity descriptor (PCA-reduced to 16-D) connects frames whose descriptors are
-close (good blend points). Jump frames are excluded as normal targets, so locomotion never accidentally jumps.</li>
+<li><b>Edges:</b> a transition connects frames whose <b>pose descriptors</b> are close (good blend points). We build
+edges on the <b>same 15-D pose feature MM matches on</b> (feet positions/velocities + root velocity) — so MG and MM
+now share one pose space. Jump frames are excluded as normal targets, so locomotion never accidentally jumps.
+<span class="mut">(Trade-off: this feet-based feature ignores arm/torso joint angles, so edges have ~35% larger
+upper-body discontinuity than the alternative full-joint descriptor — the cross-fade absorbs it. Switch back via
+<code>config.MG_DESCRIPTOR = "joint_pca"</code>.)</span></li>
 <li><b>Greedy following:</b> every few frames pick <code>{continue} ∪ {transitions}</code> by
 <code>cost(f)=‖v_local(f) − desired_local‖ + penalty</code> (1 candidate, reactive).</li>
 <li><b>A* planning (<code>plan_to</code>):</b> the only multi-step optimizer — used for the corners and the
@@ -196,7 +200,7 @@ joints (root untouched). <b>Root de-jitter:</b> Savitzky–Golay on root x,y onl
 <tr><th>name</th><th>value</th><th>name</th><th>value</th></tr>
 <tr><td>FPS</td><td>30</td><td>blend frames</td><td>12</td></tr>
 <tr><td>MM search interval / margin</td><td>15 / 0.35</td><td>MG decision interval</td><td>10</td></tr>
-<tr><td>MG neighbours / target stride</td><td>16 (28 for paths) / 2 (1)</td><td>descriptor PCA dim</td><td>16</td></tr>
+<tr><td>MG neighbours / target stride</td><td>16 (28 for paths) / 2 (1)</td><td>MG descriptor</td><td>MM pose, 15-D</td></tr>
 <tr><td>A* macro-step K / arrival reach</td><td>10 / 0.7 m</td><td>root smooth window</td><td>9</td></tr>
 <tr><td>A* cost weights w_pos/w_yaw/w_pose/cmd</td><td>1.5 / 0.4 / 0.15 / 0.4</td><td>A* expansion budget</td><td>20000</td></tr>
 <tr><td>A* turn / facing weights</td><td>0.6 / 0.5</td><td>MM A* NN transitions/step</td><td>20</td></tr>
