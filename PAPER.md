@@ -144,6 +144,17 @@ the feature-NN of the current frame instead of MG's precomputed edges.
   - A node within `reach` (0.7 m) of the target is a **goal**; its `g` then absorbs
     `w_pos·‖xy−target‖ + w_yaw·|Δyaw| + w_pose·pose_dist(frame, terminal)`. First goal
     popped (lowest `f`) wins. Backtrack the chain, replay with blends, ease onto terminal.
+  - *Ease mode (`ease_to_terminal`):* `"full"` eases joints+orientation+**position** to the
+    terminal — needed for jump run-ups (must arrive exactly to land on the box) and the
+    in-betweening task. But chaining path segments with `"full"` **foot-drifts at every
+    corner**: the last 0.7 s lerps the root to the exact corner decoupled from the footsteps,
+    so the body glides to the corner while a foot is airborne. Path corners use `"pose"`
+    (joints + orientation, but **keep the planned root position** — no position lerp): the
+    heading still pre-aligns to the next leg (so the planner navigates and corners stay tight,
+    6×6) while the body is not dragged. Corner-window root speed 1.16→0.60 m/s (max 1.83→1.33);
+    jumps still land (MG 0.00, MM 0.15 m). NB easing joints-only (dropping the heading ease
+    too) breaks navigation — MM then can't turn 90° from a standstill at the corner. Residual
+    slide is the inherent kinematic-playback skate that foot-lock (§7) absorbs.
   - A discretized **closed set** `(frame, round(xy,0.1), round(yaw,0.1))` collapses revisits;
     an expansion budget (20000) + horizon cap (`1.5·seconds`) guarantee termination.
   - *Why the heuristic matters:* with `h=0`, A\* = Dijkstra and, given the graph's ~28

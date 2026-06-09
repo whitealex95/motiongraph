@@ -22,7 +22,7 @@ def angdiff(a, b):
 
 def astar_plan(s, command, seconds, start_frame, target_xy, target_yaw, term_frame,
                K=None, max_expansions=20000, w_pos=1.5, w_yaw=0.4, w_pose=0.15, cmd_w=0.4,
-               turn_w=0.6, face_w=0.5, cruise=1.0, reach=0.7):
+               turn_w=0.6, face_w=0.5, cruise=1.0, reach=0.7, ease="full"):
     """A* for a least-cost edge sequence that arrives at the target pose.
 
     Best-first over a priority queue ordered by f = g + h:
@@ -85,12 +85,12 @@ def astar_plan(s, command, seconds, start_frame, target_xy, target_yaw, term_fra
             nodes.append([last, al, exy, eyaw, te, ng, nid, start, is_tr])
             heapq.heappush(pq, (ng + w_pos * float(np.linalg.norm(exy - target_xy)), len(nodes) - 1))
 
-    return _reconstruct(s, best, nodes, K, target_xy, target_yaw, term_frame)
+    return _reconstruct(s, best, nodes, K, target_xy, target_yaw, term_frame, ease)
 
 
-def _reconstruct(s, leaf, nodes, K, target_xy, target_yaw, term_frame):
+def _reconstruct(s, leaf, nodes, K, target_xy, target_yaw, term_frame, ease="full"):
     """Replay the winning node chain with cross-fades at transitions, then ease onto the
-    exact terminal pose placed at the target world pose."""
+    terminal pose (mode `ease`; "pose" eases joints only -> no root-drag skating)."""
     chain, nid = [], leaf
     while nid > 0:
         chain.append(nid)
@@ -112,4 +112,4 @@ def _reconstruct(s, leaf, nodes, K, target_xy, target_yaw, term_frame):
 
     dy, pv, of = alignment_to(s.xy[term_frame], s.yaw[term_frame], target_xy, target_yaw)
     term = transform_qpos(s.qpos[term_frame], dy, pv, of)[0]
-    return ease_to_terminal(out, term, int(0.7 * C.FPS))
+    return ease_to_terminal(out, term, int(0.7 * C.FPS), mode=ease)

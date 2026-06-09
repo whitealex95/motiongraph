@@ -52,7 +52,9 @@ def _box_dict(g):
 # MM over its feature-NN transitions. So one planned generator drives both.
 def _plan_walk(ctrl, F, cxy, cyaw, txy, tyaw, sec=8.0):
     rel = rotz(-cyaw) @ (np.asarray(txy, float) - cxy)
-    loc = ctrl.plan_to(CMD, sec, int(F), rel, float(tyaw - cyaw), int(F))
+    # ease="pose": pose-continuous hand-off WITHOUT dragging the root to the corner, so the
+    # path rounds corners naturally instead of foot-skating to each exact corner point.
+    loc = ctrl.plan_to(CMD, sec, int(F), rel, float(tyaw - cyaw), int(F), ease="pose")
     dy, pv, of = alignment_to(loc[0, :2], _yaw(loc[0]), cxy, cyaw)
     seg = transform_qpos(loc, dy, pv, of)
     return seg, int(F), seg[-1, :2], _yaw(seg[-1])

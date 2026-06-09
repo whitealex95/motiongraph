@@ -216,6 +216,14 @@ and <b>exited only after <code>after</code></b> (never mid-air), which also prev
 <code>ready</code> entry to <code>box − displacement</code> (corrected in <i>both</i> x and y).</li>
 <li><b>Foot-lock:</b> pin the two lowest sole spheres during steady stance via damped-least-squares IK on the 6 leg
 joints (root untouched). <b>Root de-jitter:</b> Savitzky–Golay on root x,y only (z kept so jump peaks survive).</li>
+<li><b>Corner hand-off (foot-drift fix):</b> chained A* segments must agree at the seam. The naïve easing forced the
+last 0.7&nbsp;s of each segment onto a shared terminal pose <i>including its root position</i> — which <b>drags the
+body to the exact corner decoupled from the footsteps</b>, i.e. foot-drift (the body glides to the corner while a foot
+is airborne). The fix (<code>ease="pose"</code>) eases joints <i>and heading</i> (so the next leg still pre-aligns and
+the planner navigates) but <b>keeps the root where the character actually walked</b> — no position drag. Corner-window
+root speed drops 1.16 → 0.60&nbsp;m/s (max 1.83 → 1.33): the body pivots to turn instead of sliding. Jump run-ups keep
+full easing (they must arrive exactly to land on the box). Residual sliding is the inherent kinematic-playback skate
+that foot-lock absorbs.</li>
 <li><b>Turning:</b> single walk clip → ~5 m turn radius, so square corners are rounded (no sharp turns in the data).</li>
 </ul>
 

@@ -29,16 +29,30 @@ def alignment_to(lib_xy, lib_yaw, world_xy, world_yaw):
     return world_yaw - lib_yaw, np.asarray(lib_xy, float), np.asarray(world_xy, float)
 
 
-def ease_to_terminal(out, term, k):
-    """Ease the last k frames of `out` onto terminal pose `term` (pose + position)."""
+def ease_to_terminal(out, term, k, mode="full"):
+    """Ease the last k frames of `out` toward terminal pose `term`.
+
+    mode="full"  : joints + orientation + position -> term (precise arrival; in-betweening,
+                   jump run-ups). The position lerp DRAGS the root to the target decoupled
+                   from the feet, so it foot-skates if the target is far / mid-step.
+    mode="pose"  : joints + orientation, but KEEP the planned root position (no position
+                   lerp). Gives a pose- and heading-continuous hand-off between chained
+                   segments WITHOUT dragging the root to the target -- so a path that passes
+                   through waypoints rounds the corner naturally instead of foot-skating to
+                   it, while the heading still pre-aligns to the next leg so navigation works.
+    mode="none"  : leave the motion as planned.
+    """
     k = min(k, len(out))
+    if mode == "none":
+        return out
     for j in range(k):
         w = (j + 1) / k
         idx = len(out) - k + j
-        planned = out[idx].copy()                       # save before blend overwrites position
-        eased = blend_qpos(planned, term, w)            # joints + orientation -> terminal
-        eased[0:3] = (1 - w) * planned[0:3] + w * term[0:3]   # position lerp from planned pose
-        out[idx] = eased
+        planned = out[idx].copy()
+        eased = blend_qpos(planned, term, w)                           # joints + orientation -> term
+        if mode != "pose":                                             # "full": also drag position
+            eased[0:3] = (1 - w) * planned[0:3] + w * term[0:3]        # position lerp -> term (drift)
+        out[idx] = eased                                               # "pose" keeps planned position
     return out
 
 
