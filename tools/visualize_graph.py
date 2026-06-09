@@ -104,27 +104,40 @@ def build(which="jump"):
                                   line=dict(width=0.5, color="black") if s == 1 else None),
                       name=nm, hoverinfo="skip"), 1, 2)
 
-    # animated traversal: split the path into UPCOMING (faint, dashed) and PASSED
-    # (bold; walk=blue, jump=orange) at the current frame, plus a "now" marker.
+    # animated traversal: UPCOMING (faint, dashed) vs PASSED at the current frame, plus a
+    # "now" marker. Each passed edge is classified by what it actually is -- NOT by the
+    # ambiguous trace flag. An edge into a jump-SKILL frame is a real jump (orange); a
+    # non-consecutive index step is a graph TRANSITION cut (gold); otherwise it is a plain
+    # continuation (blue). So a walk-only graph never shows orange (it has no jump frames).
+    skill_seq = g.skill[tframe]
+
+    def kind(s):
+        if skill_seq[s]:                                  # target is a jump-skill frame
+            return 2                                      # real jump
+        return 1 if tframe[s] != tframe[s - 1] + 1 else 0  # graph transition cut vs continuation
+
     def state(k):
-        up, pw, pj = [[], []], [[], []], [[], []]
+        up, pw, pt, pj = [[], []], [[], []], [[], []], [[], []]
         for s in range(1, len(tframe)):
             a, b = tframe[s - 1], tframe[s]
             xs, ys = [P[a, 0], P[b, 0], None], [P[a, 1], P[b, 1], None]
-            tgt = (pj if tphase[s] else pw) if s <= k else up
+            tgt = up if s > k else [pw, pt, pj][kind(s)]   # 0 continue, 1 transition, 2 jump
             tgt[0].extend(xs); tgt[1].extend(ys)
         c = tframe[min(k, len(tframe) - 1)]
-        return up, pw, pj, ([P[c, 0]], [P[c, 1]])
+        return up, pw, pt, pj, ([P[c, 0]], [P[c, 1]])
 
-    up0, pw0, pj0, mk0 = state(0)
+    up0, pw0, pt0, pj0, mk0 = state(0)
     iU = len(fig.data)
     fig.add_trace(go.Scattergl(x=up0[0], y=up0[1], mode="lines", name="upcoming edges",
                   line=dict(color="rgba(120,120,120,0.55)", width=1.4, dash="dot")), 1, 2)
     iPW = len(fig.data)
-    fig.add_trace(go.Scattergl(x=pw0[0], y=pw0[1], mode="lines", name="passed (walk)",
+    fig.add_trace(go.Scattergl(x=pw0[0], y=pw0[1], mode="lines", name="passed (continue)",
                   line=dict(color="royalblue", width=2.6)), 1, 2)
+    iPT = len(fig.data)
+    fig.add_trace(go.Scattergl(x=pt0[0], y=pt0[1], mode="lines", name="passed (graph transition)",
+                  line=dict(color="gold", width=2.6)), 1, 2)
     iPJ = len(fig.data)
-    fig.add_trace(go.Scattergl(x=pj0[0], y=pj0[1], mode="lines", name="passed (jump)",
+    fig.add_trace(go.Scattergl(x=pj0[0], y=pj0[1], mode="lines", name="passed (jump skill)",
                   line=dict(color="darkorange", width=3.2)), 1, 2)
     iM = len(fig.data)
     fig.add_trace(go.Scattergl(x=mk0[0], y=mk0[1], mode="markers", name="current",
@@ -138,12 +151,12 @@ def build(which="jump"):
                   line=dict(color="black", width=5), name="G1"), 1, 1)
     frames = []
     for k in range(0, len(out), ANIM_STRIDE):
-        up, pw, pj, mk = state(k)
+        up, pw, pt, pj, mk = state(k)
         xs, ys, zs = _seg(gm.model, gm.data, out[k], centers[k])
-        frames.append(go.Frame(name=str(k), traces=[iU, iPW, iPJ, iM, iSk], data=[
+        frames.append(go.Frame(name=str(k), traces=[iU, iPW, iPT, iPJ, iM, iSk], data=[
             go.Scattergl(x=up[0], y=up[1]), go.Scattergl(x=pw[0], y=pw[1]),
-            go.Scattergl(x=pj[0], y=pj[1]), go.Scattergl(x=mk[0], y=mk[1]),
-            go.Scatter3d(x=xs, y=ys, z=zs)]))
+            go.Scattergl(x=pt[0], y=pt[1]), go.Scattergl(x=pj[0], y=pj[1]),
+            go.Scattergl(x=mk[0], y=mk[1]), go.Scatter3d(x=xs, y=ys, z=zs)]))
     fig.frames = frames
 
     fig.update_layout(

@@ -59,8 +59,10 @@ motion) are dropped so the T-pose never appears.</p>
 <p>The motion graph itself, live in your browser. <b>Left:</b> a 3-D G1 skeleton playing a graph-generated motion
 (press <b>play</b> or drag the time slider; orbit with the mouse). <b>Right:</b> the <i>full</i> graph embedded in 2-D
 pose space (PCA of the transition descriptor) — every frame is a node, faint grey lines are walk↔walk transition
-edges, and the traversal lights up edge-by-edge as the skeleton moves (blue = walked, orange = jumping). The two views
-are time-synced.</p>
+edges, and the traversal lights up edge-by-edge as the skeleton moves: <b>blue = continue</b> (next frame),
+<b>gold = a graph transition</b> (a non-consecutive index jump — the graph splices to a far-away frame), and
+<b>orange = the jump skill</b>. So the walk-only graph shows blue + gold but <i>no</i> orange — it has no jump frames;
+only the walk+jump graph triggers a real jump. The two views are time-synced.</p>
 <div class="grid">
   <div class="card"><h4><span class="tag">walk + jump</span> graph with the jump skill</h4>
     <iframe src="graph_jump.html" loading="lazy" style="width:100%;height:560px;border:0;border-radius:8px;background:#fff"></iframe>
@@ -69,7 +71,8 @@ are time-synced.</p>
   <div class="card"><h4><span class="tag">walk only</span> single-clip locomotion graph</h4>
     <iframe src="graph_walk.html" loading="lazy" style="width:100%;height:560px;border:0;border-radius:8px;background:#fff"></iframe>
     <p class="legend">One unimodal walk clip: a dense web of walk↔walk transitions and a single traversal threading
-    through it. <a href="graph_walk.html" target="_blank">Open fullscreen ↗</a></p></div>
+    through it. Gold segments are graph transition cuts (splices to a far frame); <b>no orange — there are no jumps
+    here</b>. <a href="graph_walk.html" target="_blank">Open fullscreen ↗</a></p></div>
 </div>
 <p class="legend mut">Each plot is a self-contained interactive figure (~2–5&nbsp;MB, loads on scroll). If an embed is
 slow on mobile, use the “Open fullscreen” link.</p>
