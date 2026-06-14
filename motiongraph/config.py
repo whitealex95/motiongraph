@@ -17,11 +17,13 @@ JUMP_BASE_WALK = "walk1_subject5"                       # CAMDM's main walk (arm
 JUMP_CLIPS = ["walk_jump_walk", "walk_jump_walk2", "walk_jump_stop"]   # from JUMP_DATA_DIR
 SKILLS = ["walk", "jump"]
 
-# Multimodal locomotion library: the GenoView clips (subject5) we have retargeted -- walk
-# AND run -- as the locomotion (skill=walk), plus the jump clips. pushAndStumble (the 3rd
-# GenoView clip) is not publicly retargeted, so it is omitted. Speed commands then steer
-# motion matching between walk and run, and a trigger can jump (cf. run_locomotion.py).
-LOCO_JUMP_CLIPS = ["walk1_subject5", "run1_subject5"]
+# Multimodal locomotion library: the THREE GenoView clips (subject5) -- walk, run AND
+# pushAndStumble -- retargeted to the G1 with GMR (General Motion Retargeting; .pkl files
+# under data/g1_gmr_lafan1/, copied from ~/Projects/GMR). All three are one locomotion skill
+# (skill=walk); only the jump clips are a separate skill. Speed commands then steer matching
+# between walk and run, and a trigger can jump (cf. run_locomotion.py).
+GMR_DATA_DIR = os.path.join(ROOT, "data", "g1_gmr_lafan1")        # GMR-retargeted LAFAN1 (.pkl)
+LOCO_JUMP_CLIPS = ["walk1_subject5", "run1_subject5", "pushAndStumble1_subject5"]
 LOCO_LIB_PATH = os.path.join(ROOT, "data", "motion_lib_loco.npz")
 
 # Per-frame jump phase (5 phases + walk). Flight = both feet airborne; the window

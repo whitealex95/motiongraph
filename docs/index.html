@@ -45,33 +45,36 @@
 <main>
 
 <h2>1 · Source data</h2>
-<p>G1-retargeted LAFAN1 clips (30 FPS, from the <code>lvhaidong/LAFAN1_Retargeting_Dataset</code> HuggingFace mirror)
-plus the CAMDM jump clips. The walk and run are <code>subject5</code> — the same clips
-<a href="https://github.com/orangeduck/GenoViewPython" target="_blank">GenoView</a> uses (verified: identical 261.3&nbsp;s
-duration and 0.98 speed-profile correlation to GenoView's BVH) — and are trimmed to <b>GenoView's exact per-clip
-windows</b> (walk frames 160–15518, run 172–14136 at 60&nbsp;fps, ÷2 for our 30&nbsp;fps). Other clips drop the
-first/last 45 frames (the T-pose that blends into the motion).</p>
+<p>The <b>locomotion</b> is the three <a href="https://github.com/orangeduck/GenoViewPython" target="_blank">GenoView</a>
+<code>subject5</code> clips — <b>walk, run, pushAndStumble</b> — retargeted to the G1 with
+<a href="https://github.com/YanjieZe/GMR" target="_blank">GMR</a> (General Motion Retargeting). GMR targets a 29-DOF G1
+whose joint order is identical to our menagerie model, so the data maps straight to our qpos (verified by render).
+Each clip uses <b>GenoView's exact per-clip window</b> (walk 160–15518, run 172–14136, pushAndStumble 397–706 at
+60&nbsp;fps, ÷2 for our 30&nbsp;fps). The <b>jump</b> skill is the separate CAMDM <code>walk→jump→walk</code> clips
+(30&nbsp;FPS).</p>
 <div class="grid">
-  <div class="card"><h4>walk — <code>walk1_subject5</code></h4>
+  <div class="card"><h4>walk — <code>walk1_subject5</code> <span class="tag">GMR</span></h4>
     <video src="videos/dataset_walk.mp4" autoplay muted loop playsinline></video>
-    <p class="legend">~261&nbsp;s walk. Used as locomotion (with run) in the demo and the experiments, and on its own
-    in the single-clip motion graph below.</p></div>
-  <div class="card"><h4>run — <code>run1_subject5</code></h4>
+    <p class="legend">~256&nbsp;s walk (≤1.5&nbsp;m/s). The slow end of the speed-controlled gait.</p></div>
+  <div class="card"><h4>run — <code>run1_subject5</code> <span class="tag">GMR</span></h4>
     <video src="videos/dataset_run.mp4" autoplay muted loop playsinline></video>
-    <p class="legend">~238&nbsp;s run (up to ~3.75&nbsp;m/s, with a real airborne flight phase). Added as locomotion so
-    a speed command can select walk vs run.</p></div>
+    <p class="legend">~233&nbsp;s run (up to ~3.75&nbsp;m/s, real airborne flight phase). The fast end of the gait.</p></div>
+  <div class="card"><h4>pushAndStumble — <code>pushAndStumble1_subject5</code> <span class="tag">GMR</span></h4>
+    <video src="videos/dataset_pushstumble.mp4" autoplay muted loop playsinline></video>
+    <p class="legend">GenoView's short window is an <b>in-place stumble / balance recovery</b> (~5&nbsp;s, no travel) — it
+    adds perturbation/recovery poses to the locomotion set rather than a traveling gait.</p></div>
   <div class="card"><h4>jump — <code>walk_jump_walk</code> (walk → jump → walk)</h4>
     <video src="videos/dataset_jump.mp4" autoplay muted loop playsinline></video>
     <p class="legend">Short, nearly straight clips that walk, jump, and keep walking. Used for the jump skill.</p></div>
 </div>
 
 <h2>2 · Multimodal motion matching — walk · run · jump</h2>
-<p>The locomotion database holds the GenoView clips we have retargeted to the G1 — <code>walk1_subject5</code> +
-<code>run1_subject5</code> — as a single undifferentiated <b>locomotion</b> skill, plus the jump as the only separate
+<p>The locomotion database holds the three GMR-retargeted GenoView clips — <code>walk</code>, <code>run</code>,
+<code>pushAndStumble</code> — as a single undifferentiated <b>locomotion</b> skill, plus the jump as the only separate
 skill. A single <b>speed command</b> ramps the desired pace; motion matching then picks <b>walk</b> frames at low speed
 and <b>run</b> frames at high speed (the trajectory feature encodes the commanded pace), with no state machine — the
-gait is chosen by the data. A trigger near the end performs a <b>jump</b>. (This same walk+run+jump database also drives
-the path experiments below.)</p>
+gait is chosen by the data. A trigger near the end performs a <b>jump</b>. (This same locomotion+jump database also
+drives the path experiments below; pushAndStumble is in-place, so the traveling demo rarely selects it.)</p>
 <div class="grid">
   <div class="card"><h4><span class="tag">MM</span> speed-driven gait: walk → run → walk → jump</h4>
     <video src="videos/loco_mm_walk_run_jump.mp4" autoplay muted loop playsinline></video>
@@ -105,13 +108,13 @@ slow on mobile, use the “Open fullscreen” link.</p>
 
 <h2>4 · Experiment 1 — follow a square path</h2>
 <p>Path <code>(0,0)→(6,0)→(6,6)→(0,6)→(0,0)→(6,0)</code> (a 6×6 m loop, last edge re-traced). The locomotion is the
-<b>walk+run</b> database (only the jump is a separate skill); at this 1&nbsp;m/s command the gait stays walking — the
+GMR <b>walk+run+pushAndStumble</b> database (only the jump is a separate skill); at this 1&nbsp;m/s command the gait stays walking — the
 velocity cost keeps run out unless commanded fast.</p>
 <div class="grid">
   <div class="card"><h4><span class="tag">Motion graph</span> A*-planned corners</h4>
     <video src="videos/exp1_mg.mp4" autoplay muted loop playsinline></video>
     <p class="legend">Each corner is reached by an <b>A* plan</b> (<code>plan_to</code>); the path closes (≈6×6 m,
-    corners rounded by ~0.8&nbsp;m). LAFAN1 walk/run has no sharp turns (~5&nbsp;m turn radius), and the richer walk+run
+    corners rounded by ~0.8&nbsp;m). LAFAN1 walk/run has no sharp turns (~5&nbsp;m turn radius), and the richer multimodal
     graph rounds the corners a little more than the unimodal walk did.</p></div>
   <div class="card"><h4><span class="tag">Motion matching</span> A*-planned corners</h4>
     <video src="videos/exp1_mm.mp4" autoplay muted loop playsinline></video>

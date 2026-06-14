@@ -14,6 +14,7 @@ WEB = os.path.join(ROOT, "docs", "videos")
 VIDEOS = [
     ("dataset_walk.mp4", "dataset_walk.mp4"),
     ("dataset_run.mp4", "dataset_run.mp4"),
+    ("dataset_pushstumble.mp4", "dataset_pushstumble.mp4"),
     ("dataset_jump.mp4", "dataset_jump.mp4"),
     ("exp1_mg_path.mp4", "exp1_mg.mp4"),
     ("exp1_mm_path.mp4", "exp1_mm.mp4"),

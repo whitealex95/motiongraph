@@ -45,15 +45,19 @@ Contributions / things demonstrated:
 - **Jump library.** `walk1_subject5` + three G1-retargeted `walk_jump_walk*` clips (from
   `~/Projects/CAMDM`): short, nearly straight `walk → jump → walk` sequences. Concatenated
   into `data/motion_lib_jump.npz` (8290 frames).
-- **Multimodal locomotion library** (`data/motion_lib_loco.npz`, 15335 frames,
-  `config.LOCO_JUMP_CLIPS`). The GenoView clips we have retargeted — `walk1_subject5`
-  (≤1.5 m/s) + `run1_subject5` (≤3.75 m/s) — as one undifferentiated **locomotion** skill,
-  plus the jump as the only separate skill. A speed command steers motion matching between
-  walk and run (`run_locomotion.py`); the **path experiments also use this library** now
-  (`run_experiments.py`), so locomotion = walk+run with only the jump distinguished — at the
-  experiments' 1 m/s command the velocity cost keeps the gait walking. `build_jump_library`
-  phase-labels **only** the jump clips, so running's natural flight phase isn't mistaken for
-  a jump. (pushAndStumble, the 3rd GenoView clip, has no public G1 retarget, so it is omitted.)
+- **Multimodal locomotion library** (`data/motion_lib_loco.npz`, 15356 frames,
+  `config.LOCO_JUMP_CLIPS`). The **three GenoView `subject5` clips — walk, run, pushAndStumble
+  — retargeted with GMR** (General Motion Retargeting; `data/g1_gmr_lafan1/*.pkl`, copied from
+  `~/Projects/GMR`) as one undifferentiated **locomotion** skill, plus the jump as the only
+  separate skill. GMR's `.pkl` (`root_pos`, `root_rot` xyzw, `dof_pos`@29, 30 fps) maps
+  straight to qpos (`data._gmr_to_qpos`); GMR targets `g1_mocap_29dof.xml`, whose joint order
+  is identical to our menagerie G1 (verified by render). A speed command steers matching
+  between walk (≤1.5 m/s) and run (≤3.75 m/s) (`run_locomotion.py`); the **path experiments
+  also use this library** (`run_experiments.py`), so locomotion = walk+run+pushAndStumble with
+  only the jump distinguished — at the experiments' 1 m/s the velocity cost keeps the gait
+  walking. `build_jump_library` phase-labels **only** the jump clips, so running's natural
+  flight phase isn't mistaken for a jump. (pushAndStumble's GenoView window is a ~5 s in-place
+  stumble — perturbation/recovery poses, not a traveling gait.)
 - **Format.** Per frame, CSV row = 36 floats: root `(x,y,z, qx,qy,qz,qw)` (quat **xyzw**)
   + 29 joint angles in canonical Unitree order. MuJoCo free-joint qpos uses quat **wxyz**,
   so only the root quaternion is reordered. The menagerie `unitree_g1` model's joint order

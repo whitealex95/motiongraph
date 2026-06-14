@@ -302,6 +302,7 @@ motiongraph/
   cleanup.py            post-process: root de-jitter -> foot-lock
   jumps.py              shared pre-take-off jump-entry index (MM + MG)
 data/g1_jump/           CAMDM walk->jump->walk clips (for the jump skill)
+data/g1_gmr_lafan1/     GMR-retargeted GenoView clips (walk/run/pushAndStumble .pkl) = locomotion
 tools/diagnose.py       quality metrics + time-axis plots (root speed, foot slip)
 tools/visualize_graph.py interactive web view: 3-D motion + 2-D graph [walk|jump] (HTML)
 run_motion_matching.py  MM demos (task1 / task2)

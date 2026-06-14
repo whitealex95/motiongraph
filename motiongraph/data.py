@@ -1,19 +1,36 @@
-"""Build / load the unified G1 motion library from the LAFAN1 CSVs."""
+"""Build / load the unified G1 motion library from the LAFAN1 CSVs (or GMR .pkl)."""
 import os
+import pickle
 import numpy as np
 
 from . import config as C
 from .g1_model import G1Model, csv_to_qpos, quat_wxyz_yaw
 
 
+def _gmr_to_qpos(path):
+    """GMR-retargeted motion (.pkl: root_pos, root_rot xyzw, dof_pos@29) -> qpos (T,36) wxyz.
+    GMR targets g1_mocap_29dof.xml, whose joint order matches our menagerie G1 exactly."""
+    d = pickle.load(open(path, "rb"))
+    rp, rr, dof = np.asarray(d["root_pos"]), np.asarray(d["root_rot"]), np.asarray(d["dof_pos"])
+    q = np.zeros((len(rp), 36), np.float64)
+    q[:, 0:3] = rp                           # root position (world)
+    q[:, 3:7] = rr[:, [3, 0, 1, 2]]          # root quat xyzw -> wxyz (mujoco)
+    q[:, 7:36] = dof                         # 29 joint angles
+    return q
+
+
 def _load_clip(name, data_dir=C.DATA_DIR, trim=C.TRIM):
-    rows = np.genfromtxt(os.path.join(data_dir, name + ".csv"), delimiter=",")
+    pkl = os.path.join(data_dir, name + ".pkl")
+    if os.path.exists(pkl):                  # GMR-retargeted .pkl
+        q = _gmr_to_qpos(pkl)
+    else:                                    # lvhaidong CSV row = [pos, quat_xyzw, 29 joints]
+        q = csv_to_qpos(np.genfromtxt(os.path.join(data_dir, name + ".csv"), delimiter=","))
     win = C.CLIP_TRIM.get(name)
     if win is not None:                      # GenoView-matched [start:stop] window
-        rows = rows[win[0]:win[1]]
+        q = q[win[0]:win[1]]
     elif trim:
-        rows = rows[trim:len(rows) - trim]   # symmetric T-pose cut at both ends
-    return csv_to_qpos(rows)  # (T, 36) wxyz
+        q = q[trim:len(q) - trim]            # symmetric T-pose cut at both ends
+    return q  # (T, 36) wxyz
 
 
 def _label_jump(model, q, foot_thr=0.13):
@@ -103,23 +120,25 @@ def build_library(clips=None, out=C.LIB_PATH):
     return out
 
 
-def build_jump_library(loco_clips=None, out=C.JUMP_LIB_PATH):
+def build_jump_library(loco_clips=None, out=C.JUMP_LIB_PATH, loco_dir=C.DATA_DIR):
     """Locomotion base clip(s) (skill=walk) + CAMDM walk->jump->walk clips.
 
     Only the jump clips are phase-labeled; the locomotion clips stay skill=0 so they are
     matched as locomotion. This matters once running is included: running has a natural
     flight phase (both feet airborne) that _label_jump would otherwise mistake for a jump.
+    `loco_dir` is where the locomotion clips live (CSV dir, or the GMR .pkl dir).
     """
     loco_clips = loco_clips or [C.JUMP_BASE_WALK]
     model = G1Model()
-    specs = [(c, C.DATA_DIR, C.TRIM, False) for c in loco_clips] + \
+    specs = [(c, loco_dir, C.TRIM, False) for c in loco_clips] + \
             [(c, C.JUMP_DATA_DIR, 0, True) for c in C.JUMP_CLIPS]   # (name, dir, trim, is_jump)
     qpos, clip_id, frame_in_clip, lengths, names = [], [], [], [], []
     skill, phase, j_entry, j_takeoff, j_land, j_cont, j_apex, j_box = [], [], [], [], [], [], [], []
     off = 0
+    specs = [s for s in specs                                 # keep clips present as .csv or .pkl
+             if os.path.exists(os.path.join(s[1], s[0] + ".csv"))
+             or os.path.exists(os.path.join(s[1], s[0] + ".pkl"))]
     for cid, (name, d, trim, is_jump) in enumerate(specs):
-        if not os.path.exists(os.path.join(d, name + ".csv")):
-            continue
         q = _load_clip(name, d, trim)
         if is_jump:
             sk, ph, jumps = _label_jump(model, q)             # carve ready..after, find boxes
@@ -161,8 +180,8 @@ def build_jump_library(loco_clips=None, out=C.JUMP_LIB_PATH):
 
 def load_library(path=C.LIB_PATH):
     if not os.path.exists(path):
-        if path == C.LOCO_LIB_PATH:
-            build_jump_library(C.LOCO_JUMP_CLIPS, out=path)   # walk + run + jump
+        if path == C.LOCO_LIB_PATH:                           # GMR walk+run+pushAndStumble + jump
+            build_jump_library(C.LOCO_JUMP_CLIPS, out=path, loco_dir=C.GMR_DATA_DIR)
         elif path == C.JUMP_LIB_PATH:
             build_jump_library(out=path)                      # walk + jump
         else:
