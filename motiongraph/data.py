@@ -100,19 +100,28 @@ def build_library(clips=None, out=C.LIB_PATH):
     return out
 
 
-def build_jump_library(out=C.JUMP_LIB_PATH):
-    """Walk base clip (skill=walk) + CAMDM walk->jump->walk clips (skill auto-labeled)."""
+def build_jump_library(loco_clips=None, out=C.JUMP_LIB_PATH):
+    """Locomotion base clip(s) (skill=walk) + CAMDM walk->jump->walk clips.
+
+    Only the jump clips are phase-labeled; the locomotion clips stay skill=0 so they are
+    matched as locomotion. This matters once running is included: running has a natural
+    flight phase (both feet airborne) that _label_jump would otherwise mistake for a jump.
+    """
+    loco_clips = loco_clips or [C.JUMP_BASE_WALK]
     model = G1Model()
-    specs = [(C.JUMP_BASE_WALK, C.DATA_DIR, C.TRIM)] + \
-            [(c, C.JUMP_DATA_DIR, 0) for c in C.JUMP_CLIPS]
+    specs = [(c, C.DATA_DIR, C.TRIM, False) for c in loco_clips] + \
+            [(c, C.JUMP_DATA_DIR, 0, True) for c in C.JUMP_CLIPS]   # (name, dir, trim, is_jump)
     qpos, clip_id, frame_in_clip, lengths, names = [], [], [], [], []
     skill, phase, j_entry, j_takeoff, j_land, j_cont, j_apex, j_box = [], [], [], [], [], [], [], []
     off = 0
-    for cid, (name, d, trim) in enumerate(specs):
+    for cid, (name, d, trim, is_jump) in enumerate(specs):
         if not os.path.exists(os.path.join(d, name + ".csv")):
             continue
         q = _load_clip(name, d, trim)
-        sk, ph, jumps = _label_jump(model, q)
+        if is_jump:
+            sk, ph, jumps = _label_jump(model, q)             # carve ready..after, find boxes
+        else:
+            sk = np.zeros(len(q), np.int32); ph = np.zeros(len(q), np.int32); jumps = []
         qpos.append(q); skill.append(sk); phase.append(ph)
         clip_id.append(np.full(len(q), cid)); frame_in_clip.append(np.arange(len(q)))
         lengths.append(len(q)); names.append(name)
@@ -149,7 +158,12 @@ def build_jump_library(out=C.JUMP_LIB_PATH):
 
 def load_library(path=C.LIB_PATH):
     if not os.path.exists(path):
-        (build_jump_library if path == C.JUMP_LIB_PATH else build_library)(out=path)
+        if path == C.LOCO_LIB_PATH:
+            build_jump_library(C.LOCO_JUMP_CLIPS, out=path)   # walk + run + jump
+        elif path == C.JUMP_LIB_PATH:
+            build_jump_library(out=path)                      # walk + jump
+        else:
+            build_library(out=path)                           # single-clip walk
     d = np.load(path, allow_pickle=True)
     return {k: d[k] for k in d.files}
 

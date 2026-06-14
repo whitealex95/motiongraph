@@ -17,6 +17,7 @@ compressed copies (see `tools/make_web.py`). Do this in the same change set as t
 ## Key entry points
 - Walk demos: `run_motion_graph.py`, `run_motion_matching.py`.
 - Jump demos: `run_jump.py` (mm/mg, raw, loop, samebox).
+- Multimodal MM (walk+run+jump, speed-driven): `run_locomotion.py` (uses `LOCO_LIB_PATH`).
 - Experiments (square path ± box): `run_experiments.py`.
 - Diagnostics / web graph: `tools/diagnose.py`, `tools/visualize_graph.py`.
 - Web build: `tools/make_web.py` (compress videos -> docs/videos, refresh site).

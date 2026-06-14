@@ -20,6 +20,7 @@ VIDEOS = [
     ("exp2_mm_path_jump.mp4", "exp2_mm.mp4"),
     ("exp2_mm_reactive.mp4", "exp2_mm_reactive.mp4"),
     ("compare_descriptors.mp4", "compare_descriptors.mp4"),
+    ("loco_mm_walk_run_jump.mp4", "loco_mm_walk_run_jump.mp4"),
 ]
 
 

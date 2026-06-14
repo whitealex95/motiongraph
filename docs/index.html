@@ -37,7 +37,8 @@
   <h1>Motion Matching &amp; Motion Graphs on the Unitree&nbsp;G1</h1>
   <p class="mut">A testbed comparing two classic data-driven controllers — <b>motion matching (MM)</b> and
   <b>motion graphs (MG)</b> — driving the G1 humanoid on LAFAN1 mocap, with a phase-segmented, world-anchored
-  <b>jump skill</b>. Below: the source data, two path experiments for each method, and the method details.</p>
+  <b>jump skill</b>. Below: the source data, a multimodal walk/run/jump matching demo, an interactive graph, two path
+  experiments for each method, and the method details.</p>
   <p class="legend">All motion is kinematic playback of retargeted mocap fragments (no physics). Blue dots = path
   corners; orange box = obstacle to jump over.</p>
 </header>
@@ -55,7 +56,22 @@ motion) are dropped so the T-pose never appears.</p>
     <p class="legend">Short, nearly straight clips that walk, jump, and keep walking. Used for the jump skill.</p></div>
 </div>
 
-<h2>2 · Interactive motion graph</h2>
+<h2>2 · Multimodal motion matching — walk · run · jump</h2>
+<p>The single-walk database above is deliberately <b>unimodal</b>. Here instead the motion-matching feature database
+holds the GenoView clips we have retargeted to the G1 — <code>walk1_subject5</code> + <code>run1_subject5</code> — plus
+the jump skill. A single <b>speed command</b> ramps the desired pace; motion matching then picks <b>walk</b> frames at
+low speed and <b>run</b> frames at high speed (the trajectory feature encodes the commanded pace), with no state machine
+— the gait is chosen by the data. A trigger near the end performs a <b>jump</b>.</p>
+<div class="grid">
+  <div class="card"><h4><span class="tag">MM</span> speed-driven gait: walk → run → walk → jump</h4>
+    <video src="videos/loco_mm_walk_run_jump.mp4" autoplay muted loop playsinline></video>
+    <p class="legend">HUD shows the live source clip: <code>walk1_subject5</code> at a stroll, <code>run1_subject5</code>
+    once commanded fast, then the jump clip on the trigger. This is the classic motion-matching payoff that a motion
+    <i>graph</i> can't do as directly — speed continuously selects the gait. <span class="mut">(GenoView's third clip,
+    <code>pushAndStumble</code>, has no public G1 retarget, so it is omitted.)</span></p></div>
+</div>
+
+<h2>3 · Interactive motion graph</h2>
 <p>The motion graph itself, live in your browser. <b>Left:</b> a 3-D G1 skeleton playing a graph-generated motion
 (press <b>play</b> or drag the time slider; orbit with the mouse). <b>Right:</b> the <i>full</i> graph embedded in 2-D
 pose space (PCA of the transition descriptor) — every frame is a node, faint grey lines are walk↔walk transition
@@ -77,7 +93,7 @@ only the walk+jump graph triggers a real jump. The two views are time-synced.</p
 <p class="legend mut">Each plot is a self-contained interactive figure (~2–5&nbsp;MB, loads on scroll). If an embed is
 slow on mobile, use the “Open fullscreen” link.</p>
 
-<h2>3 · Experiment 1 — follow a square path</h2>
+<h2>4 · Experiment 1 — follow a square path</h2>
 <p>Path <code>(0,0)→(6,0)→(6,6)→(0,6)→(0,0)→(6,0)</code> (a 6×6 m loop, last edge re-traced).</p>
 <div class="grid">
   <div class="card"><h4><span class="tag">Motion graph</span> A*-planned corners</h4>
@@ -90,7 +106,7 @@ slow on mobile, use the “Open fullscreen” link.</p>
     transitions instead of graph edges — so it also closes the 6×6 square cleanly.</p></div>
 </div>
 
-<h2>4 · Experiment 2 — same path, jump over a box at (3,0)</h2>
+<h2>5 · Experiment 2 — same path, jump over a box at (3,0)</h2>
 <p>A box sits at <code>(3,0)</code>, which the path crosses twice (the two <code>→(6,0)</code> legs), so the robot
 must jump over the <b>same box</b> twice.</p>
 <div class="grid">
@@ -113,7 +129,7 @@ giving MM the <b>same A* planner</b> — searching over its feature-nearest-neig
 edges — lands both jumps, exactly like MG. So the double-jump guarantee comes from <i>planning</i>, and both a motion
 graph and a motion-matching feature database can be planned over identically.</div>
 
-<h2>5 · Method</h2>
+<h2>6 · Method</h2>
 
 <h3>Pipeline</h3>
 <p>Both controllers stitch mocap <i>fragments</i> under a shared backbone: a planar <b>root alignment</b> keeps the

@@ -17,6 +17,13 @@ JUMP_BASE_WALK = "walk1_subject5"                       # CAMDM's main walk (arm
 JUMP_CLIPS = ["walk_jump_walk", "walk_jump_walk2", "walk_jump_stop"]   # from JUMP_DATA_DIR
 SKILLS = ["walk", "jump"]
 
+# Multimodal locomotion library: the GenoView clips (subject5) we have retargeted -- walk
+# AND run -- as the locomotion (skill=walk), plus the jump clips. pushAndStumble (the 3rd
+# GenoView clip) is not publicly retargeted, so it is omitted. Speed commands then steer
+# motion matching between walk and run, and a trigger can jump (cf. run_locomotion.py).
+LOCO_JUMP_CLIPS = ["walk1_subject5", "run1_subject5"]
+LOCO_LIB_PATH = os.path.join(ROOT, "data", "motion_lib_loco.npz")
+
 # Per-frame jump phase (5 phases + walk). Flight = both feet airborne; the window
 # lengths (frames) carve the surrounding run-up / push-off / landing into phases.
 # Controllers may ENTER a jump only in `ready` and EXIT only after `after`.

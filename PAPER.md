@@ -43,6 +43,13 @@ Contributions / things demonstrated:
 - **Jump library.** `walk1_subject5` + three G1-retargeted `walk_jump_walk*` clips (from
   `~/Projects/CAMDM`): short, nearly straight `walk → jump → walk` sequences. Concatenated
   into `data/motion_lib_jump.npz` (8290 frames).
+- **Multimodal locomotion library** (`data/motion_lib_loco.npz`, 15335 frames,
+  `config.LOCO_JUMP_CLIPS`). The GenoView clips we have retargeted — `walk1_subject5`
+  (≤1.5 m/s) + `run1_subject5` (≤3.75 m/s) — as locomotion, plus the jump clips. A speed
+  command then steers motion matching between walk and run (`run_locomotion.py`).
+  `build_jump_library` phase-labels **only** the jump clips, so running's natural flight
+  phase isn't mistaken for a jump. (pushAndStumble, the 3rd GenoView clip, has no public G1
+  retarget, so it is omitted.)
 - **Format.** Per frame, CSV row = 36 floats: root `(x,y,z, qx,qy,qz,qw)` (quat **xyzw**)
   + 29 joint angles in canonical Unitree order. MuJoCo free-joint qpos uses quat **wxyz**,
   so only the root quaternion is reordered. The menagerie `unitree_g1` model's joint order
@@ -324,6 +331,7 @@ motiongraph/
   render.py         offline MuJoCo -> MP4 (HUD, transition flash, boxes)
 run_motion_matching.py / run_motion_graph.py   walk demos (task1/task2)
 run_jump.py          jump demos: mm/mg task1/2, raw, loop, samebox
+run_locomotion.py    multimodal MM demo: speed-driven walk -> run -> jump
 tools/diagnose.py    quality metrics + plots
 tools/visualize_graph.py   interactive web graph
 ```
