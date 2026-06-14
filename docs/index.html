@@ -28,8 +28,6 @@
   code{background:#1c232d;padding:1px 6px;border-radius:5px;font-size:14px}
   .note{background:#1a212b;border-left:3px solid var(--acc);padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0}
   .legend{font-size:14px;color:var(--mut)}
-  .phasebar{display:flex;font-size:12px;text-align:center;border-radius:6px;overflow:hidden;margin:8px 0}
-  .phasebar div{padding:6px 4px}
 </style>
 </head>
 <body>
@@ -127,16 +125,13 @@ integrated from the matched clip's smooth velocity.</li>
 <h3>Jump skill — five phases</h3>
 <p>Flight = both feet airborne; we carve five phases around it. A jump is <b>entered only in <code>ready</code></b>
 (the run-up) and <b>exited only after <code>after</code></b> (recovery) — never mid-air — which also keeps locomotion
-from ever matching into a jump.</p>
-<div class="phasebar">
-  <div style="flex:12;background:#3a4a63">ready (enter)</div>
-  <div style="flex:10;background:#5a4a2e">take-off</div>
-  <div style="flex:15;background:#7a3b1e">flight</div>
-  <div style="flex:6;background:#5a2e3a">touch-down</div>
-  <div style="flex:18;background:#2e5a3a">after (exit)</div>
-</div>
-<p class="legend">Window lengths (frames): ready 12, take-off 10, flight ≈ data, touch-down 6, after 18. The reactive
-box trigger fires when the box is within the jump's entry→apex forward travel, so the apex lands on it.</p>
+from ever matching into a jump. The strip below is a real <code>walk_jump_walk</code> clip (one frame from each phase,
+left→right); orange ticks mark each phase transition.</p>
+<img src="jump_phases.png" alt="jump phases frame sequence: ready, take-off, flight, touch-down, after"
+     style="width:100%;border-radius:8px;display:block;margin:8px 0">
+<p class="legend">The matcher cuts <b>into</b> a jump only during <code>ready</code> and leaves only after
+<code>after</code>. The reactive box trigger fires when the box is within the jump's entry→apex forward travel, so
+the apex lands on it.</p>
 
 <h3>Heuristics</h3>
 <ul>
