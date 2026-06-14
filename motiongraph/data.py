@@ -120,26 +120,32 @@ def build_library(clips=None, out=C.LIB_PATH):
     return out
 
 
-def build_jump_library(loco_clips=None, out=C.JUMP_LIB_PATH, loco_dir=C.DATA_DIR):
+def build_jump_library(loco_clips=None, out=C.JUMP_LIB_PATH, loco_dir=C.DATA_DIR, mirror=False):
     """Locomotion base clip(s) (skill=walk) + CAMDM walk->jump->walk clips.
 
     Only the jump clips are phase-labeled; the locomotion clips stay skill=0 so they are
     matched as locomotion. This matters once running is included: running has a natural
     flight phase (both feet airborne) that _label_jump would otherwise mistake for a jump.
-    `loco_dir` is where the locomotion clips live (CSV dir, or the GMR .pkl dir).
+    `loco_dir` is where the locomotion clips live (CSV dir, or the GMR .pkl dir). With
+    `mirror`, every clip is also added L/R-mirrored (GenoView-style, for the GenoView MM).
     """
     loco_clips = loco_clips or [C.JUMP_BASE_WALK]
     model = G1Model()
     specs = [(c, loco_dir, C.TRIM, False) for c in loco_clips] + \
             [(c, C.JUMP_DATA_DIR, 0, True) for c in C.JUMP_CLIPS]   # (name, dir, trim, is_jump)
-    qpos, clip_id, frame_in_clip, lengths, names = [], [], [], [], []
-    skill, phase, j_entry, j_takeoff, j_land, j_cont, j_apex, j_box = [], [], [], [], [], [], [], []
-    off = 0
     specs = [s for s in specs                                 # keep clips present as .csv or .pkl
              if os.path.exists(os.path.join(s[1], s[0] + ".csv"))
              or os.path.exists(os.path.join(s[1], s[0] + ".pkl"))]
-    for cid, (name, d, trim, is_jump) in enumerate(specs):
+    loaded = []                                              # (name, qpos, is_jump) per concrete clip
+    for name, d, trim, is_jump in specs:
         q = _load_clip(name, d, trim)
+        loaded.append((name, q, is_jump))
+        if mirror:
+            loaded.append((name + "_mirror", model.mirror_qpos(q), is_jump))
+    qpos, clip_id, frame_in_clip, lengths, names = [], [], [], [], []
+    skill, phase, j_entry, j_takeoff, j_land, j_cont, j_apex, j_box = [], [], [], [], [], [], [], []
+    off = 0
+    for cid, (name, q, is_jump) in enumerate(loaded):
         if is_jump:
             sk, ph, jumps = _label_jump(model, q)             # carve ready..after, find boxes
         else:
@@ -180,7 +186,9 @@ def build_jump_library(loco_clips=None, out=C.JUMP_LIB_PATH, loco_dir=C.DATA_DIR
 
 def load_library(path=C.LIB_PATH):
     if not os.path.exists(path):
-        if path == C.LOCO_LIB_PATH:                           # GMR walk+run+pushAndStumble + jump
+        if path == C.LOCO_MIRROR_LIB_PATH:                    # GMR loco+jump, L/R mirrored (GenoView MM)
+            build_jump_library(C.LOCO_JUMP_CLIPS, out=path, loco_dir=C.GMR_DATA_DIR, mirror=True)
+        elif path == C.LOCO_LIB_PATH:                         # GMR walk+run+pushAndStumble + jump
             build_jump_library(C.LOCO_JUMP_CLIPS, out=path, loco_dir=C.GMR_DATA_DIR)
         elif path == C.JUMP_LIB_PATH:
             build_jump_library(out=path)                      # walk + jump

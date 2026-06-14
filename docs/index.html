@@ -80,8 +80,8 @@ drives the path experiments below; pushAndStumble is in-place, so the traveling 
     <video src="videos/loco_mm_walk_run_jump.mp4" autoplay muted loop playsinline></video>
     <p class="legend">HUD shows the live source clip: <code>walk1_subject5</code> at a stroll, <code>run1_subject5</code>
     once commanded fast, then the jump clip on the trigger. This is the classic motion-matching payoff that a motion
-    <i>graph</i> can't do as directly — speed continuously selects the gait. <span class="mut">(GenoView's third clip,
-    <code>pushAndStumble</code>, has no public G1 retarget, so it is omitted.)</span></p></div>
+    <i>graph</i> can't do as directly — speed continuously selects the gait. The matcher is the <b>GenoView
+    controller</b> (per-clip KD-trees, critically-damped trajectory springs, inertialized transitions; see Method).</p></div>
 </div>
 
 <h2>3 · Interactive motion graph</h2>
@@ -116,10 +116,11 @@ velocity cost keeps run out unless commanded fast.</p>
     <p class="legend">Each corner is reached by an <b>A* plan</b> (<code>plan_to</code>); the path closes (≈6×6 m,
     corners rounded by ~0.8&nbsp;m). LAFAN1 walk/run has no sharp turns (~5&nbsp;m turn radius), and the richer multimodal
     graph rounds the corners a little more than the unimodal walk did.</p></div>
-  <div class="card"><h4><span class="tag">Motion matching</span> A*-planned corners</h4>
+  <div class="card"><h4><span class="tag">Motion matching</span> reactive, steered</h4>
     <video src="videos/exp1_mm.mp4" autoplay muted loop playsinline></video>
-    <p class="legend">MM now uses the <b>same A* planner</b> as MG, but over its <i>feature-nearest-neighbour</i>
-    transitions instead of graph edges — so it also closes the 6×6 square cleanly.</p></div>
+    <p class="legend">MM is the <b>GenoView controller</b> (reactive — no planner). It is <b>steered</b> toward each
+    corner (a go-to-point heading fed to the matcher), so it traces the square but rounds the corners; it has no
+    look-ahead, so it follows the path rather than planning to it.</p></div>
 </div>
 
 <h2>5 · Experiment 2 — same path, jump over a box at (3,0)</h2>
@@ -130,20 +131,17 @@ must jump over the <b>same box</b> twice.</p>
     <video src="videos/exp2_mg.mp4" autoplay muted loop playsinline></video>
     <p class="legend"><span class="ok">Both jumps land on the box</span> (apex within ~0.15&nbsp;m): each jump's
     pre-take-off entry is reached by an A* plan, so the apex is anchored to the box even after the loop.</p></div>
-  <div class="card"><h4><span class="tag">Motion matching</span> A*-planned approach to each jump</h4>
+  <div class="card"><h4><span class="tag">Motion matching</span> reactive jump trigger</h4>
     <video src="videos/exp2_mm.mp4" autoplay muted loop playsinline></video>
-    <p class="legend"><span class="ok">Both jumps land on the box</span> (apex within ~0.15&nbsp;m). MM runs the same
-    A* planner over its feature-NN transitions, so — like MG — it precisely re-acquires the box after the loop.</p></div>
-  <div class="card"><h4><span class="tag">Motion matching</span> reactive (no planner) — for contrast</h4>
-    <video src="videos/exp2_mm_reactive.mp4" autoplay muted loop playsinline></video>
-    <p class="legend"><span class="ok">1st jump lands</span> (~0.2&nbsp;m) but the <span class="bad">2nd misses
-    by ~0.8&nbsp;m</span>: one nearest-neighbour per step can't precisely return to the box after the loop.</p></div>
+    <p class="legend">The GenoView MM <b>reactively</b> triggers a jump when the box is ahead and within one jump's
+    forward reach (no planner). Here both jumps land near the box (~0.1–0.2&nbsp;m) — the controller steers and
+    re-acquires the box well — but with no look-ahead the second pass is <span class="mut">best-effort</span> and can
+    drift.</p></div>
 </div>
-<div class="note"><b>It's the planner, not the controller.</b> Reaching a <i>fixed</i> world point with a specific
-facing after a loop needs <b>look-ahead</b>. Reactive MM (one nearest-neighbour per step) drifts on the second jump;
-giving MM the <b>same A* planner</b> — searching over its feature-nearest-neighbour transitions instead of MG's graph
-edges — lands both jumps, exactly like MG. So the double-jump guarantee comes from <i>planning</i>, and both a motion
-graph and a motion-matching feature database can be planned over identically.</div>
+<div class="note"><b>Planner vs. controller.</b> MG reaches each box with an <b>A* plan</b> (look-ahead), so its apex is
+anchored to the box even after the loop. MM is the reactive <b>GenoView controller</b> — it is steered and triggers
+the jump on a "box-ahead-and-in-reach" condition, with no planning. That's the standing MG↔MM distinction: a graph can
+be <i>planned over</i>; the GenoView matcher is reactive.</div>
 
 <h2>6 · Method</h2>
 
@@ -154,15 +152,20 @@ smooths the root (Savitzky–Golay on x,y) and runs <b>foot-lock IK</b> to remov
 gives foot positions for features and the offline renderer.</p>
 
 <h3>Motion matching (MM)</h3>
+<p>MM is a faithful port of the <a href="https://github.com/orangeduck/GenoViewPython" target="_blank">GenoView</a>
+(Holden "Simple Motion Matching") controller, real-time and reactive (no planner).</p>
 <ul>
-<li><b>Features (27-D, root-local):</b> future root offset + facing at horizons {10,20,30} frames (trajectory, 12-D)
-and both-feet positions/velocities + root velocity (pose, 15-D); z-scored with per-group weights.</li>
-<li><b>Criterion:</b> query = <code>[trajectory-from-command | pose-of-current-frame]</code>; pick the
-<b>nearest neighbour</b> in the weighted feature space (cKDTree), with hysteresis (only switch if clearly better than
-continuing). Reactive — no multi-step look-ahead.</li>
-<li><b>A* planning (<code>plan_to</code>):</b> the same shared planner MG uses — but MM has no precomputed edges, so
-its transitions are the <i>feature-nearest-neighbours</i> of the current frame (the same set it would jump to at
-runtime), computed on the fly from the KD-tree. This is what lets reactive MM also land the second box jump.</li>
+<li><b>Simulation root:</b> per clip, a Savitzky–Golay-smoothed ground position + facing that the matcher tracks; the
+pelvis is stored as a <i>local offset</i> of it. The database is also <b>L/R mirrored</b> (each clip added twice).</li>
+<li><b>Features (27-D, sim-root-local):</b> foot positions (6) + foot &amp; pelvis velocities (9) + future sim-root
+offset (6) and facing (6) at {10,20,30} frames; normalized by a per-block std.</li>
+<li><b>Search:</b> every 0.15&nbsp;s, query = <code>[current pose | desired trajectory]</code>; nearest neighbour over
+<b>per-clip KD-trees</b> (each clip's last 30 frames trimmed from the search so a full future always exists), biased
+toward staying in the current clip. Jump frames are excluded — a jump happens only on a trigger.</li>
+<li><b>Transitions = inertialization:</b> on a switch the pose discontinuity (joints + pelvis-local pos/rot, and their
+velocities) is captured as a <b>decaying-spring offset</b> and bled to zero over ~0.075&nbsp;s — no cross-fade, momentum
+preserved. The desired trajectory is predicted with <b>critically-damped springs</b>; the world root is integrated from
+the matched clip's smooth velocity.</li>
 </ul>
 
 <h3>Motion graph (MG)</h3>
@@ -263,11 +266,12 @@ that foot-lock absorbs.</li>
 <table>
 <tr><th>name</th><th>value</th><th>name</th><th>value</th></tr>
 <tr><td>FPS</td><td>30</td><td>blend frames</td><td>12</td></tr>
-<tr><td>MM search interval / margin</td><td>15 / 0.35</td><td>MG decision interval</td><td>10</td></tr>
+<tr><td>MM search time / current bias</td><td>0.15 s / 0.01</td><td>MG decision interval</td><td>10</td></tr>
+<tr><td>MM inert / vel / rot half-life</td><td>0.075 / 0.2 / 0.2 s</td><td>MM sim-root smooth (pos/dir)</td><td>15 / 31</td></tr>
+<tr><td>MM search-tail (per clip)</td><td>30 frames</td><td>MM mirror / max speed</td><td>L+R / 5 m/s</td></tr>
 <tr><td>MG neighbours / target stride</td><td>16 (28 for paths) / 2 (1)</td><td>MG descriptor</td><td>MM pose, 15-D</td></tr>
 <tr><td>A* macro-step K / arrival reach</td><td>10 / 0.7 m</td><td>root smooth window</td><td>9</td></tr>
 <tr><td>A* cost weights w_pos/w_yaw/w_pose/cmd</td><td>1.5 / 0.4 / 0.15 / 0.4</td><td>A* expansion budget</td><td>20000</td></tr>
-<tr><td>A* turn / facing weights</td><td>0.6 / 0.5</td><td>MM A* NN transitions/step</td><td>20</td></tr>
 <tr><td>phase ready/take-off/touch/after</td><td>12 / 10 / 6 / 18</td><td>flight foot threshold</td><td>0.13 m</td></tr>
 <tr><td>box half (x,y)</td><td>0.13, 0.28 m</td><td>T-pose trim</td><td>45 frames/end</td></tr>
 </table>

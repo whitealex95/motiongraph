@@ -1,216 +1,235 @@
-"""Motion matching: per-interval nearest-neighbour search over a feature database.
+"""GenoView (Holden "Simple Motion Matching") motion matching for the G1.
 
-The query is [ trajectory-from-command | pose-of-current-frame ]. Searching for the
-nearest database frame and jumping there continues the motion while following the
-command. Root motion is stitched continuously and pose pops are cross-faded.
+A faithful port of ~/Projects/motionmatching-g1 (which in turn ports GenoView's
+genoview_g1.py): a per-clip Savitzky-Golay-smoothed "simulation root" (ground position +
+facing) is what the matcher tracks and integrates; the pelvis is a local offset of it.
+Every SEARCH_TIME seconds we nearest-neighbour search per-clip KD-trees (biased toward
+staying put, each clip's last HORIZONS[-1] frames trimmed from the search), inertialize
+joints + pelvis-local pos/rot toward the winner, integrate the matched clip's smooth root
+velocity through the world, then place the pelvis back on that root. Transitions are
+inertialized (decaying spring offsets), NOT cross-faded. The L/R-mirrored database and the
+triggered jump skill (jump frames kept out of the search; entered only via a run-up) are
+the only extras over genoview_g1.py.
+
+Interface: real-time `step(speed, heading) -> qpos(36)`; `generate(command, seconds, ...)`
+wraps it to roll out an offline sequence driven by a SpeedCommand (for rendering).
 """
 import numpy as np
 from scipy.spatial import cKDTree
 
 from . import config as C
-from . import features as F
-from .kinematics import transform_qpos, alignment_to, blend_qpos
+from . import quat
+from .mm_features import build_db, yaw_quat, FORWARD, HORIZONS, FPS
+from .jumps import jump_entries
+from .springs import (DecaySpringDamperPosition, DecaySpringDamperRotation,
+                      TrajectorySpringPosition, TrajectorySpringRotation)
+
+DT = C.DT
+NDOF = 29
 
 
 class MotionMatcher:
-    def __init__(self, lib, traj_w=1.0, pose_w=1.0, min_z=0.6, jump_margin=0.35):
+    def __init__(self, lib, start_frame=None, **_ignored):   # _ignored: legacy traj_w/pose_w
         self.lib = lib
-        self.raw = F.compute_features(lib)
-        self.feat, self.mean, self.std, self.w = F.standardize(self.raw, traj_w, pose_w)
-        self.xy, self.yaw, self.qpos = lib["qpos"][:, 0:2], lib["yaw"], lib["qpos"]
-        self.fic, self.lengths = lib["frame_in_clip"], lib["lengths"]
+        db = self.db = build_db(lib)
+        self.starts, self.stops = db["starts"], db["stops"]
+        self.X = db["X"]
+        self.dof, self.dofVel = db["dof"], db["dofVel"]
+        self.simPosDB, self.simThetaDB = db["simPos"], db["simTheta"]
+        self.simVelDB, self.yawRateDB = db["simVel"], db["yawRate"]
+        self.plpDB, self.plvDB = db["pelvLocalPos"], db["pelvLocalVel"]
+        self.prDB, self.paDB = db["pelvLocalRot"], db["pelvLocalAng"]
         self.clip_id = lib["clip_id"]
-        self.jump_margin = jump_margin
-        self.skill = lib["skill"] if "skill" in lib else np.zeros(len(self.qpos), np.int32)
-        # normal search: upright WALK frames only, so locomotion never produces a jump
-        # (a jump happens only when triggered, via best_jump_entry).
-        self.valid = np.where((lib["qpos"][:, 2] >= min_z) & (self.skill == 0))[0]
-        self.tree = cKDTree(self.feat[self.valid])
-        from .jumps import jump_entries
-        self.jump_enter, self.jump_land_of, self.jump_apex_of = jump_entries(lib)   # pre-take-off run-up frames
+        self.skill = lib["skill"] if "skill" in lib else np.zeros(len(self.X), np.int32)
+        self.Ttimes = HORIZONS / FPS
 
-    def _is_clip_end(self, i):
-        return self.fic[i] >= self.lengths[self.clip_id[i]] - 1
-
-    # --- A* planning hooks (shared planner over the feature KD-tree) ---------
-    def _pose_dist(self, a, b):
-        return float(np.linalg.norm(self.qpos[a, C.JOINTS] - self.qpos[b, C.JOINTS]))
-
-    def _play(self, frame, count, align):
-        """Play `count` frames from `frame` (clamped to clip end) under planar `align`.
-        Returns (placed qpos, end xy, end heading=lib yaw+dyaw, last frame) in align's frame."""
-        dyaw, pivot, offset = align
-        end = min(frame + count, frame + (self.lengths[self.clip_id[frame]] - 1 - self.fic[frame]) + 1)
-        idx = np.arange(frame, max(end, frame + 1))
-        world = transform_qpos(self.qpos[idx], dyaw, pivot, offset)
-        last = int(idx[-1])
-        return world, world[-1, 0:2].copy(), self.yaw[last] + dyaw, last
-
-    def _options(self, cur, xy, yaw, align, plan_k=20):
-        """Candidate macro-moves: (start_frame, align, is_transition, penalty). MM has no
-        precomputed edges, so transitions are the feature-NN of the current frame among the
-        valid walk frames (computed on the fly) -- the same set MM would jump to at runtime."""
-        opts = []
-        if not self._is_clip_end(cur):
-            opts.append((cur + 1, align, False, 0.0))
-        d, nn = self.tree.query(self.feat[cur], k=plan_k + 1)
-        for dist, k in zip(np.atleast_1d(d), np.atleast_1d(nn)):
-            if k >= len(self.valid):
+        # Per-clip KD-trees over LOCOMOTION clips only (skill==0), each trimming the last
+        # HORIZONS[-1] frames so a full future trajectory always exists; jump clips excluded
+        # so locomotion never matches into a jump (it only happens on a trigger).
+        self.search = []        # (clip_index, tree, range_start)
+        searchable = []
+        for ci, (rs, re) in enumerate(zip(self.starts, self.stops)):
+            if self.skill[rs:re].any() or re - rs <= HORIZONS[-1]:
                 continue
-            j = int(self.valid[k])
-            if self.clip_id[j] == self.clip_id[cur] and abs(j - cur) < 30:
-                continue                                          # skip near-self
-            opts.append((j, alignment_to(self.xy[j], self.yaw[j], xy, yaw), True, 0.3 + 0.05 * float(dist)))
-        return opts
+            self.search.append((ci, cKDTree(self.X[rs:re - HORIZONS[-1]]), rs))
+            searchable.append(re - rs - HORIZONS[-1])
+        self.valid = np.empty(int(np.sum(searchable)), int)   # count of searchable frames
 
-    def plan_to(self, command, seconds, start_frame, target_xy, target_yaw, term_frame, **kw):
-        """A* in-betweening to a target pose (shared planner over MM's feature-NN moves)."""
-        from .planner import astar_plan
-        return astar_plan(self, command, seconds, start_frame, target_xy, target_yaw, term_frame, **kw)
+        # Pre-take-off run-up frames available to the jump trigger (continuing jumps only).
+        self.jump_enter, self.jump_land_of, self.jump_apex_of = jump_entries(lib)
+        self.qpos = lib["qpos"]                  # for the reactive box-jump reach (entry->apex)
+        self.reset(start_frame)
 
-    def best_jump_entry(self, cur):
-        """Pre-take-off run-up frame whose features best match the current frame, so the
-        match jumps into the run-up (not mid-air) with a smooth take-off."""
+    # --- state ---------------------------------------------------------------
+    def reset(self, start_frame=None):
+        if start_frame is None:
+            start_frame = min(self.stops[0] - 1, self.starts[0] + 30)
+        self.animRange = int(np.searchsorted(self.starts, start_frame, "right") - 1)
+        self.animFrame = int(start_frame)
+        self.rootPos = self.simPosDB[self.animFrame].copy()    # controller root = smoothed sim root
+        self.rootVel = np.zeros(3); self.rootAcc = np.zeros(3); self.rootAng = np.zeros(3)
+        self.rootYaw = float(self.simThetaDB[self.animFrame])
+        self.rootRot = yaw_quat(self.rootYaw)
+        self.desiredDir = quat.mul_vec(self.rootRot, FORWARD)
+        self.offDof = np.zeros(NDOF); self.offDofVel = np.zeros(NDOF)   # inertialization offsets
+        self.offPP = np.zeros(3); self.offPPVel = np.zeros(3)
+        self.offPR = np.array([1.0, 0.0, 0.0, 0.0]); self.offPAng = np.zeros(3)
+        self.searchTimer = 0.0
+        self.jump_pending = False
+        self.jump_locked = 0
+        self.Tpos = np.tile(self.rootPos, (len(HORIZONS), 1))
+        self.Tdir = np.tile(self.desiredDir, (len(HORIZONS), 1))
+
+    # --- jump skill ----------------------------------------------------------
+    def trigger_jump(self):
+        """Request a jump. Honoured on the next step if not already jumping."""
+        if self.jump_locked == 0:
+            self.jump_pending = True
+
+    @property
+    def jumping(self):
+        return self.jump_locked > 0
+
+    @property
+    def cur(self):
+        return self.animFrame
+
+    def best_jump_entry(self, cur=None):
+        """Pre-take-off `ready` run-up frame whose features best match the current frame, so
+        the jump is entered from the run-up (not mid-air) with a smooth take-off."""
+        cur = self.animFrame if cur is None else cur
         if len(self.jump_enter) == 0:
             return None
-        d = np.linalg.norm(self.feat[self.jump_enter] - self.feat[cur], axis=1)
+        d = np.linalg.norm(self.X[self.jump_enter] - self.X[cur], axis=1)
         f = int(self.jump_enter[d.argmin()])
         return f, self.jump_land_of[f]
 
-    def _qstd(self, traj_block, cur):
-        """Standardized query: command trajectory + current frame's pose features."""
-        query = np.concatenate([traj_block, self.raw[cur, F.TRAJ_DIM:]])
-        return ((query - self.mean) / self.std) * self.w
+    def _inertialize_into(self, b, rng):
+        """Capture the pose discontinuity from frame a to b (joints, pelvis-local pos+rot) as
+        decaying inertialization offsets, then switch the playhead there (no pop)."""
+        a = self.animFrame
+        self.offDof = (self.offDof + self.dof[a]) - self.dof[b]
+        self.offDofVel = (self.offDofVel + self.dofVel[a]) - self.dofVel[b]
+        self.offPP = (self.offPP + self.plpDB[a]) - self.plpDB[b]
+        self.offPPVel = (self.offPPVel + self.plvDB[a]) - self.plvDB[b]
+        self.offPR = quat.abs(quat.mul_inv(quat.mul(self.offPR, self.prDB[a]), self.prDB[b]))
+        self.offPAng = (self.offPAng + self.paDB[a]) - self.paDB[b]
+        self.animRange, self.animFrame = rng, b
 
-    def generate(self, command, seconds, start_frame=0, traj_fn=None,
-                 jump_at=None, return_trace=False):
-        """Roll out for `seconds`; traj_fn(t,xy,yaw)->block overrides the command query.
+    # --- one frame -----------------------------------------------------------
+    def step(self, speed, heading):
+        """Advance one frame. speed [m/s], heading [rad] are the desired locomotion this
+        frame; returns the world-space qpos (36,)."""
+        starts, stops, X = self.starts, self.stops, self.X
 
-        Hysteresis: at a search we only jump to the nearest neighbour if it is
-        clearly better (by jump_margin) than simply continuing the current clip.
-        This keeps the character on long continuous fragments -> less jitter/skating.
-        If jump_at is given, at that time the match is forced into the best pre-take-off
-        jump run-up and the clip is then ridden through landing (a JUMP on command).
-        With return_trace, also return the per-frame library index sequence.
-        """
+        desiredVel = speed * np.array([np.cos(heading), np.sin(heading), 0.0])
+        if speed > 0.01:
+            self.desiredDir = np.array([np.cos(heading), np.sin(heading), 0.0])
+        desiredRot = yaw_quat(np.arctan2(self.desiredDir[1], self.desiredDir[0]))
+
+        # ---- Predict desired trajectory (critically-damped springs) ----
+        dt_col = self.Ttimes[:, None]
+        self.Tpos, _, _ = TrajectorySpringPosition(
+            self.rootPos, self.rootVel, self.rootAcc, desiredVel, C.VEL_HALFLIFE, dt_col)
+        Trot, _ = TrajectorySpringRotation(
+            self.rootRot, self.rootAng, desiredRot, C.ROT_HALFLIFE, dt_col)
+        self.Tdir = quat.mul_vec(Trot, FORWARD)
+
+        # ---- Jump trigger: inertialize into the best `ready` run-up, then lock ----
+        if self.jump_pending and self.jump_locked == 0:
+            self.jump_pending = False
+            je = self.best_jump_entry()
+            if je is not None:
+                entry, land = je
+                rng = int(np.searchsorted(starts, entry, "right") - 1)
+                self._inertialize_into(entry, rng)
+                after_end = min(land + 1 + C.PHASE_TOUCHDOWN + C.PHASE_AFTER, stops[rng] - 1)
+                self.jump_locked = max(1, after_end - entry)
+                self.searchTimer = C.SEARCH_TIME
+
+        # ---- Search (skipped while riding a jump) ----
+        if self.jump_locked == 0 and self.searchTimer <= 0.0:
+            qh_ctrl = yaw_quat(self.rootYaw)
+            Xq = self._runtime_features(qh_ctrl)
+            bestRange, bestFrame = self.animRange, self.animFrame
+            if bestFrame < stops[bestRange] - HORIZONS[-1]:
+                best = float(np.linalg.norm(Xq - X[bestFrame]) - C.CURRENT_BIAS)   # stay-in-clip bias
+            else:
+                best = np.inf
+            for ci, tree, rs in self.search:
+                dist, k = tree.query(Xq, eps=C.APPROX_BIAS, distance_upper_bound=best)
+                if dist < best:
+                    best, bestRange, bestFrame = dist, ci, int(rs + k)
+            if bestRange != self.animRange or bestFrame != self.animFrame:
+                self._inertialize_into(bestFrame, bestRange)   # seamless inertialized cut
+            self.searchTimer = C.SEARCH_TIME
+
+        # ---- Advance the playhead (30 fps data) ----
+        self.animFrame = int(np.clip(self.animFrame + 1,
+                                     starts[self.animRange], stops[self.animRange] - 1))
+        self.searchTimer -= DT
+        if self.jump_locked > 0:
+            self.jump_locked -= 1
+            if self.jump_locked == 0:
+                self.searchTimer = 0.0                         # search out of the jump at once
+        elif self.animFrame >= stops[self.animRange] - 2:
+            self.searchTimer = 0.0
+        f = self.animFrame
+
+        # ---- Integrate controller root from the matched clip's smooth root velocity ----
+        _, _, self.rootAcc = TrajectorySpringPosition(
+            self.rootPos, self.rootVel, self.rootAcc, desiredVel, C.ROT_HALFLIFE, DT)
+        qh_clip = yaw_quat(self.simThetaDB[f])
+        clipVelLocal = quat.inv_mul_vec(qh_clip, self.simVelDB[f])
+        self.rootVel = quat.mul_vec(self.rootRot, clipVelLocal)
+        self.rootAng = np.array([0.0, 0.0, self.yawRateDB[f]])
+        self.rootPos = self.rootPos + self.rootVel * DT
+        self.rootYaw = self.rootYaw + self.yawRateDB[f] * DT
+        self.rootRot = yaw_quat(self.rootYaw)
+
+        # ---- Inertialize joints + pelvis-local offset, then reconstruct the pose ----
+        self.offDof, self.offDofVel = DecaySpringDamperPosition(
+            self.offDof, self.offDofVel, C.INERT_HALFLIFE, DT)
+        self.offPP, self.offPPVel = DecaySpringDamperPosition(
+            self.offPP, self.offPPVel, C.INERT_HALFLIFE, DT)
+        self.offPR, self.offPAng = DecaySpringDamperRotation(
+            self.offPR, self.offPAng, C.INERT_HALFLIFE, DT)
+
+        dofOut = self.dof[f] + self.offDof
+        pelvLocalPos = self.plpDB[f] + self.offPP
+        pelvLocalRot = quat.mul(self.offPR, self.prDB[f])
+        pelvWorldPos = self.rootPos + quat.mul_vec(self.rootRot, pelvLocalPos)
+        pelvWorldRot = quat.mul(self.rootRot, pelvLocalRot)
+
+        qpos = np.empty(36)
+        qpos[0:3] = pelvWorldPos
+        qpos[3:7] = pelvWorldRot
+        qpos[7:] = dofOut
+        return qpos
+
+    def _runtime_features(self, qh_ctrl):
+        """Query = current frame's pose blocks (from X) + the desired trajectory, normalized
+        the same way as the database (genoview runtime_features)."""
+        Xoffset, Xscale = self.db["Xoffset"], self.db["Xscale"]
+        pose = self.X[self.animFrame, 0:15] * Xscale[0:15] + Xoffset[0:15]   # de-normalized pose
+        trajPos = quat.inv_mul_vec(qh_ctrl, self.Tpos - self.rootPos)[:, 0:2].ravel()
+        trajDir = quat.inv_mul_vec(qh_ctrl, self.Tdir)[:, 0:2].ravel()
+        q = np.concatenate([pose, trajPos, trajDir])
+        return (q - Xoffset) / Xscale
+
+    # --- offline roll-out (drives step() from a SpeedCommand, for rendering) ---
+    def generate(self, command, seconds, start_frame=None, jump_at=None, return_trace=False):
+        """Roll out `seconds` of motion: each frame feed the command's (speed, heading) to
+        step(). If jump_at is given, trigger one jump at that time. Returns world qpos (T,36)
+        (and the per-frame library index if return_trace)."""
+        self.reset(start_frame)
         n = int(seconds * C.FPS)
-        cur = start_frame
-        # planar alignment (dyaw,pivot,offset): start the character at world origin facing +x
-        dyaw, pivot, offset = -self.yaw[cur], self.xy[cur].copy(), np.zeros(2)
-        out, frozen, blend_left, tframe = [], None, 0, []
-        locked, did = 0, False
-        for step in range(n):
-            t = step * C.DT
-            world = transform_qpos(self.qpos[cur], dyaw, pivot, offset)[0]
-            cwx, cwy = world[0:2].copy(), self.yaw[cur] + dyaw   # current world xy + heading (rad)
-            if blend_left > 0:
-                world = blend_qpos(frozen, world, 1 - blend_left / C.BLEND_FRAMES)
-                blend_left -= 1
-            out.append(world); tframe.append(cur)
-
-            if jump_at is not None and not did and step >= int(jump_at * C.FPS) and locked == 0:
-                je = self.best_jump_entry(cur)              # enter via the `ready` run-up
-                if je:
-                    entry, land = je
-                    dyaw, pivot, offset = alignment_to(self.xy[entry], self.yaw[entry], cwx, cwy)
-                    frozen, blend_left = world.copy(), C.BLEND_FRAMES
-                    after_end = land + 1 + C.PHASE_TOUCHDOWN + C.PHASE_AFTER   # ready..after, then walk
-                    cur, locked, did = entry, min(after_end - entry, n - step), True
-                    continue
-            if locked > 0:                                  # ride the jump clip through landing
-                if not self._is_clip_end(cur):
-                    cur += 1
-                locked -= 1
-                continue
-
-            if step > 0 and (step % C.MM_SEARCH_INTERVAL == 0 or self._is_clip_end(cur)):
-                block = traj_fn(t, cwx, cwy) if traj_fn else command.trajectory(cwx, cwy, t)
-                qstd = self._qstd(block, cur)
-                dist_best, vi = self.tree.query(qstd)
-                best = int(self.valid[vi])
-                end = self._is_clip_end(cur)
-                # continuing costs the query's distance to the next frame's features
-                cont = 1e9 if end else float(np.linalg.norm(qstd - self.feat[cur + 1]))
-                if end or dist_best < cont * (1 - self.jump_margin):
-                    jump = not (self.clip_id[best] == self.clip_id[cur] and 0 <= best - cur <= 2)
-                    dyaw, pivot, offset = alignment_to(self.xy[best], self.yaw[best], cwx, cwy)
-                    if jump:
-                        frozen, blend_left = world.copy(), C.BLEND_FRAMES
-                    cur = best
-                elif not end:
-                    cur += 1
-            elif not self._is_clip_end(cur):
-                cur += 1
-        out = np.asarray(out)
-        return (out, np.array(tframe)) if return_trace else out
-
-    def walk_path(self, waypoints, box=None, start_frame=0, speed=1.0, reach=1.2,
-                  max_seconds=90, return_trace=False):
-        """Reactively walk through `waypoints` by aiming the NN trajectory query at the
-        current waypoint (go-to-point). If `box` is given, jump over it on each +x crossing
-        (entered from the `ready` run-up). No planner -> corners/returns are approximate."""
-        from .commands import SpeedCommand
-        n = int(max_seconds * C.FPS)
-        cur = start_frame
-        dyaw, pivot, offset = -self.yaw[cur], self.xy[cur].copy(), np.zeros(2)
-        out, frozen, blend_left, tframe = [], None, 0, []
-        wp, locked, armed, prev = 0, 0, True, np.zeros(2)
-        step = 0
-        while step < n and wp < len(waypoints):
-            world = transform_qpos(self.qpos[cur], dyaw, pivot, offset)[0]
-            cwx, cwy = world[0:2].copy(), self.yaw[cur] + dyaw   # current world xy + heading (rad)
-            if blend_left > 0:
-                world = blend_qpos(frozen, world, 1 - blend_left / C.BLEND_FRAMES)
-                blend_left -= 1
-            out.append(world); tframe.append(cur)
-
-            if locked > 0:                                   # riding a jump
-                if not self._is_clip_end(cur):
-                    cur += 1
-                locked -= 1
-                step += 1
-                continue
-            if box is not None:                              # jump over the box on a +x crossing
-                d = np.asarray(box, float) - cwx             # world vector from character to box
-                heading = np.array([np.cos(cwy), np.sin(cwy)])   # world facing unit vector
-                aligned = abs(((np.arctan2(d[1], d[0]) - cwy + np.pi) % (2 * np.pi)) - np.pi) < 0.5  # box ahead?
-                je = self.best_jump_entry(cur)
-                fwd = float(self.qpos[self.jump_apex_of[je[0]], 0] - self.qpos[je[0], 0]) if je else 0
-                if cwx[0] < 1.0:
-                    armed = True
-                if je and armed and aligned and 0 < (d @ heading) <= fwd:
-                    entry, land = je
-                    dyaw, pivot, offset = alignment_to(self.xy[entry], self.yaw[entry], cwx, cwy)
-                    frozen, blend_left = world.copy(), C.BLEND_FRAMES
-                    cur, locked, armed = entry, (land + 1 + C.PHASE_TOUCHDOWN + C.PHASE_AFTER) - entry, False
-                    step += 1
-                    continue
-
-            tx, ty = waypoints[wp]
-            dvec = np.array([tx, ty]) - cwx
-            seg = np.array([tx, ty]) - prev
-            passed = seg @ (cwx - np.array([tx, ty])) > 0 if seg @ seg > 1e-6 else False
-            if np.linalg.norm(dvec) < reach or passed:
-                prev = np.array([tx, ty]); wp += 1
-                continue
-
-            if step > 0 and (step % C.MM_SEARCH_INTERVAL == 0 or self._is_clip_end(cur)):
-                block = SpeedCommand([(0., speed, float(np.arctan2(dvec[1], dvec[0])))]).trajectory(cwx, cwy, 0.)
-                qstd = self._qstd(block, cur)
-                dist_best, vi = self.tree.query(qstd)
-                best = int(self.valid[vi])
-                end = self._is_clip_end(cur)
-                cont = 1e9 if end else float(np.linalg.norm(qstd - self.feat[cur + 1]))
-                if end or dist_best < cont * (1 - self.jump_margin):
-                    jump = not (self.clip_id[best] == self.clip_id[cur] and 0 <= best - cur <= 2)
-                    dyaw, pivot, offset = alignment_to(self.xy[best], self.yaw[best], cwx, cwy)
-                    if jump:
-                        frozen, blend_left = world.copy(), C.BLEND_FRAMES
-                    cur = best
-                elif not end:
-                    cur += 1
-            elif not self._is_clip_end(cur):
-                cur += 1
-            step += 1
+        out, tframe = [], []
+        for s in range(n):
+            t = s * C.DT
+            if jump_at is not None and t >= jump_at and not self.jumping:
+                self.trigger_jump(); jump_at = None
+            spd, hd = command.state(t)
+            out.append(self.step(spd, hd)); tframe.append(self.cur)
         out = np.asarray(out)
         return (out, np.array(tframe)) if return_trace else out

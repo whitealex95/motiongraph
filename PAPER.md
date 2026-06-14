@@ -83,27 +83,33 @@ Contributions / things demonstrated:
 
 ---
 
-## 4. Motion matching (`motion_matching.py`)
+## 4. Motion matching (`motion_matching.py`) — GenoView controller
 
-- **Feature vector** (`features.py`, 27-D, all root-local):
-  - *trajectory*: future root offset `(dx,dy)` and facing `(cosθ,sinθ)` at horizons
-    `{10,20,30}` frames (≈0.33/0.67/1.0 s) — 12-D.
-  - *pose*: both feet positions, both feet velocities, root velocity — 15-D.
-  - z-scored; trajectory and pose groups carry separate weights `traj_w, pose_w`.
-- **Criterion.** Query `q = [trajectory-from-command | pose-of-current-frame]`. Match =
-  nearest neighbour in the **weighted standardized feature space**: `d = ‖q_std −
-  F_std[j]‖`, found with a cKDTree restricted to upright **walk** frames.
-- **Hysteresis.** Jump to the NN only if clearly better than continuing the current clip:
-  `d_best < d_continue · (1 − jump_margin)`, `jump_margin = 0.35`, search every
-  `MM_SEARCH_INTERVAL = 15` frames. Keeps long continuous fragments → less jitter/skating.
-- **In-betweening (terminal).** In the final `tail` s, the trajectory half of the query is
-  overridden to steer onto the target: for horizon `h`,
-  `future_pos = lerp(cur_xy, target_xy, frac)`, `frac = min(1, h·dt/time_left)`; the last
-  `tail·FPS` frames are eased exactly onto the terminal pose.
+A faithful port of the GenoView ("Simple Motion Matching", Holden) real-time controller
+(reference: `~/Projects/motionmatching-g1`). Reactive, step-based (`step(speed, heading)`);
+`generate()` wraps it to roll out an offline sequence from a `SpeedCommand`.
 
-MM is **reactive** by default (one NN per interval, no multi-step look-ahead), but it can
-also be driven by the **same shared A\* planner** as MG (see §5): its transitions are then
-the feature-NN of the current frame instead of MG's precomputed edges.
+- **Simulation root + DB** (`mm_features.py`). Per clip, a Savitzky-Golay-smoothed sim root
+  (ground xy + heading; windows 15/31) is what the matcher tracks; the pelvis is a *local
+  offset* of it. The library is **L/R mirrored** (each clip added twice, `g1_model.mirror_qpos`)
+  → `data/motion_lib_loco_mirror.npz`. The MG keeps the un-mirrored lib.
+- **Feature vector** (27-D, in the sim-root frame, **per-block** standardized): foot
+  positions (6) + foot & pelvis velocities (9) + future sim-root offset (6) and facing (6)
+  at horizons `{10,20,30}` frames (= pose 15 + trajectory 12).
+- **Search.** Every `SEARCH_TIME = 0.15 s`, query `= [current pose | desired trajectory]`;
+  nearest neighbour over **per-clip cKDTrees** (each trims its last `HORIZONS[-1]=30` frames
+  so a full future always exists; jump frames excluded), seeded with a stay-in-clip bias
+  `CURRENT_BIAS = 0.01` and `eps = APPROX_BIAS`.
+- **Transitions = inertialization.** On a switch, the pose discontinuity (joints +
+  pelvis-local pos/rot **and their velocities**) is captured as a decaying-spring offset and
+  bled to zero over `INERT_HALFLIFE = 0.075 s` (`springs.py`) — no cross-fade, momentum
+  preserved. The desired trajectory is predicted with **critically-damped springs**
+  (`VEL/ROT_HALFLIFE = 0.2 s`); the world root is integrated from the matched clip's smooth
+  velocity (`rootPos += R(rootRot)·clipVelLocal·dt`, `rootYaw += yawRate·dt`).
+- **Jump** is triggered (not searched): inertialize into the best-matching `ready` run-up,
+  ride through landing. In the path experiments MM is *steered* (go-to-point heading) and
+  jumps when the box is ahead and within one jump's reach — reactive, no planner (so MG's A*
+  is what guarantees a box-anchored landing; MM is best-effort).
 
 ---
 

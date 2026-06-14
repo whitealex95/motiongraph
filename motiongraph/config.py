@@ -25,6 +25,9 @@ SKILLS = ["walk", "jump"]
 GMR_DATA_DIR = os.path.join(ROOT, "data", "g1_gmr_lafan1")        # GMR-retargeted LAFAN1 (.pkl)
 LOCO_JUMP_CLIPS = ["walk1_subject5", "run1_subject5", "pushAndStumble1_subject5"]
 LOCO_LIB_PATH = os.path.join(ROOT, "data", "motion_lib_loco.npz")
+# L/R-mirrored copy of the loco lib, used by the GenoView MotionMatcher (mirroring is part of
+# that algorithm); the motion graph keeps using the un-mirrored LOCO_LIB_PATH.
+LOCO_MIRROR_LIB_PATH = os.path.join(ROOT, "data", "motion_lib_loco_mirror.npz")
 
 # Per-frame jump phase (5 phases + walk). Flight = both feet airborne; the window
 # lengths (frames) carve the surrounding run-up / push-off / landing into phases.
@@ -60,6 +63,20 @@ SEARCH_INTERVAL = 10           # motion-graph decision interval (frames, ~0.33 s
 MM_SEARCH_INTERVAL = 15        # motion-matching search interval (~0.5 s; fewer jumps)
 BLEND_FRAMES = 12              # cross-fade length at a jump/transition (~0.4 s)
 SMOOTH_WINDOW = 9              # Savitzky-Golay window (frames) for root de-jitter
+
+# --- GenoView motion matching (Holden "Simple Motion Matching"); the MotionMatcher is a
+# faithful port of ~/Projects/motionmatching-g1 (genoview_g1.py). All math/params mirror it.
+HORIZONS = [10, 20, 30]        # future trajectory taps (frames) ~0.33/0.67/1.0 s @30fps
+SEARCH_TIME = 0.15             # seconds between database searches
+INERT_HALFLIFE = 0.075         # inertialization (pose-transition) blend half-life
+VEL_HALFLIFE = 0.2             # desired-trajectory position spring half-life
+ROT_HALFLIFE = 0.2             # desired-trajectory rotation spring half-life
+CURRENT_BIAS = 0.01            # stay-in-clip bias seeded onto the current frame's distance
+APPROX_BIAS = 0.01             # cKDTree eps: slightly approximate (faster) nearest-neighbour
+ROOT_POS_SMOOTH = 15           # Savitzky-Golay window for the smoothed sim-root position
+ROOT_DIR_SMOOTH = 31           # Savitzky-Golay window for the smoothed sim-root heading
+MAX_SPEED = 5.0                # full-command speed (m/s); run pace
+WALK_SCALE = 0.4               # walk = MAX_SPEED * WALK_SCALE
 
 # Every LAFAN1 clip begins and ends in a T-pose (arms out) that blends into the motion
 # over ~1.5 s. By default we DROP the first/last TRIM frames of every clip (symmetric;

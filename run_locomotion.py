@@ -27,8 +27,8 @@ CAM = dict(cam_dist=4.5, cam_elev=-12, cam_azim=130, width=900, height=620)  # r
 
 
 def main():
-    lib = load_library(C.LOCO_LIB_PATH)               # walk + run + jump (auto-builds once)
-    mm = MotionMatcher(lib, traj_w=2.0, pose_w=1.0)   # weight the trajectory so speed steers gait
+    lib = load_library(C.LOCO_MIRROR_LIB_PATH)        # GMR walk+run+pushAndStumble+jump, mirrored
+    mm = MotionMatcher(lib)                            # GenoView controller (springs + inertialization)
     out, tframe = mm.generate(CMD, SECONDS, start_frame=START, jump_at=JUMP_AT, return_trace=True)
     out = cleanup(out)
     render_qpos(out, f"{C.OUT_DIR}/loco_mm_walk_run_jump.mp4",
