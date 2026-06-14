@@ -235,4 +235,4 @@ if __name__ == "__main__":
     if which in ("mg", "both"):
         run("mg", MotionGraph(lib))
     if which in ("mm", "both"):
-        run("mm", MotionMatcher(lib, traj_w=1.5, pose_w=1.0))
+        run("mm", MotionMatcher(load_library(C.LOCO_MIRROR_LIB_PATH)))   # GenoView MM on mirrored loco
