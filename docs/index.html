@@ -45,23 +45,33 @@
 <main>
 
 <h2>1 · Source data</h2>
-<p>Two G1-retargeted LAFAN1 sources (30 FPS). Every clip's first/last 45 frames (a T-pose that blends into the
-motion) are dropped so the T-pose never appears.</p>
+<p>G1-retargeted LAFAN1 clips (30 FPS, from the <code>lvhaidong/LAFAN1_Retargeting_Dataset</code> HuggingFace mirror)
+plus the CAMDM jump clips. The walk and run are <code>subject5</code> — the same clips
+<a href="https://github.com/orangeduck/GenoViewPython" target="_blank">GenoView</a> uses (verified: identical 261.3&nbsp;s
+duration and 0.98 speed-profile correlation to GenoView's BVH) — and are trimmed to <b>GenoView's exact per-clip
+windows</b> (walk frames 160–15518, run 172–14136 at 60&nbsp;fps, ÷2 for our 30&nbsp;fps). Other clips drop the
+first/last 45 frames (the T-pose that blends into the motion).</p>
 <div class="grid">
-  <div class="card"><h4>walk — <code>walk1_subject5</code> (CAMDM's main walk)</h4>
+  <div class="card"><h4>walk — <code>walk1_subject5</code></h4>
     <video src="videos/dataset_walk.mp4" autoplay muted loop playsinline></video>
-    <p class="legend">A single ~258&nbsp;s walk clip → a <b>unimodal</b> gait. Natural arms-down posture.</p></div>
+    <p class="legend">~261&nbsp;s walk. Used as locomotion (with run) in the demo and the experiments, and on its own
+    in the single-clip motion graph below.</p></div>
+  <div class="card"><h4>run — <code>run1_subject5</code></h4>
+    <video src="videos/dataset_run.mp4" autoplay muted loop playsinline></video>
+    <p class="legend">~238&nbsp;s run (up to ~3.75&nbsp;m/s, with a real airborne flight phase). Added as locomotion so
+    a speed command can select walk vs run.</p></div>
   <div class="card"><h4>jump — <code>walk_jump_walk</code> (walk → jump → walk)</h4>
     <video src="videos/dataset_jump.mp4" autoplay muted loop playsinline></video>
     <p class="legend">Short, nearly straight clips that walk, jump, and keep walking. Used for the jump skill.</p></div>
 </div>
 
 <h2>2 · Multimodal motion matching — walk · run · jump</h2>
-<p>The single-walk database above is deliberately <b>unimodal</b>. Here instead the motion-matching feature database
-holds the GenoView clips we have retargeted to the G1 — <code>walk1_subject5</code> + <code>run1_subject5</code> — plus
-the jump skill. A single <b>speed command</b> ramps the desired pace; motion matching then picks <b>walk</b> frames at
-low speed and <b>run</b> frames at high speed (the trajectory feature encodes the commanded pace), with no state machine
-— the gait is chosen by the data. A trigger near the end performs a <b>jump</b>.</p>
+<p>The locomotion database holds the GenoView clips we have retargeted to the G1 — <code>walk1_subject5</code> +
+<code>run1_subject5</code> — as a single undifferentiated <b>locomotion</b> skill, plus the jump as the only separate
+skill. A single <b>speed command</b> ramps the desired pace; motion matching then picks <b>walk</b> frames at low speed
+and <b>run</b> frames at high speed (the trajectory feature encodes the commanded pace), with no state machine — the
+gait is chosen by the data. A trigger near the end performs a <b>jump</b>. (This same walk+run+jump database also drives
+the path experiments below.)</p>
 <div class="grid">
   <div class="card"><h4><span class="tag">MM</span> speed-driven gait: walk → run → walk → jump</h4>
     <video src="videos/loco_mm_walk_run_jump.mp4" autoplay muted loop playsinline></video>
@@ -94,12 +104,15 @@ only the walk+jump graph triggers a real jump. The two views are time-synced.</p
 slow on mobile, use the “Open fullscreen” link.</p>
 
 <h2>4 · Experiment 1 — follow a square path</h2>
-<p>Path <code>(0,0)→(6,0)→(6,6)→(0,6)→(0,0)→(6,0)</code> (a 6×6 m loop, last edge re-traced).</p>
+<p>Path <code>(0,0)→(6,0)→(6,6)→(0,6)→(0,0)→(6,0)</code> (a 6×6 m loop, last edge re-traced). The locomotion is the
+<b>walk+run</b> database (only the jump is a separate skill); at this 1&nbsp;m/s command the gait stays walking — the
+velocity cost keeps run out unless commanded fast.</p>
 <div class="grid">
   <div class="card"><h4><span class="tag">Motion graph</span> A*-planned corners</h4>
     <video src="videos/exp1_mg.mp4" autoplay muted loop playsinline></video>
-    <p class="legend">Each corner is reached by an <b>A* plan</b> (<code>plan_to</code>); the path closes
-    cleanly (bbox 6×6). Corners are rounded because the single walk clip has no sharp turns (~5&nbsp;m turn radius).</p></div>
+    <p class="legend">Each corner is reached by an <b>A* plan</b> (<code>plan_to</code>); the path closes (≈6×6 m,
+    corners rounded by ~0.8&nbsp;m). LAFAN1 walk/run has no sharp turns (~5&nbsp;m turn radius), and the richer walk+run
+    graph rounds the corners a little more than the unimodal walk did.</p></div>
   <div class="card"><h4><span class="tag">Motion matching</span> A*-planned corners</h4>
     <video src="videos/exp1_mm.mp4" autoplay muted loop playsinline></video>
     <p class="legend">MM now uses the <b>same A* planner</b> as MG, but over its <i>feature-nearest-neighbour</i>
@@ -240,7 +253,7 @@ the planner navigates) but <b>keeps the root where the character actually walked
 root speed drops 1.16 → 0.60&nbsp;m/s (max 1.83 → 1.33): the body pivots to turn instead of sliding. Jump run-ups keep
 full easing (they must arrive exactly to land on the box). Residual sliding is the inherent kinematic-playback skate
 that foot-lock absorbs.</li>
-<li><b>Turning:</b> single walk clip → ~5 m turn radius, so square corners are rounded (no sharp turns in the data).</li>
+<li><b>Turning:</b> LAFAN1 walk/run → ~5 m turn radius, so square corners are rounded (no sharp turns in the data).</li>
 </ul>
 
 <h3>Hyperparameters</h3>

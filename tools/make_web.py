@@ -13,6 +13,7 @@ WEB = os.path.join(ROOT, "docs", "videos")
 # (source in outputs/, web filename). Keep this list in sync with docs/index.html.
 VIDEOS = [
     ("dataset_walk.mp4", "dataset_walk.mp4"),
+    ("dataset_run.mp4", "dataset_run.mp4"),
     ("dataset_jump.mp4", "dataset_jump.mp4"),
     ("exp1_mg_path.mp4", "exp1_mg.mp4"),
     ("exp1_mm_path.mp4", "exp1_mm.mp4"),

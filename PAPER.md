@@ -39,17 +39,21 @@ Contributions / things demonstrated:
   **unimodal** distribution (one subject, one gait) so matching/graph never hop styles.
 - **T-pose trimming (applied).** Every LAFAN1 clip starts/ends in a T-pose (arms out) that
   blends in over ~1.5 s; `data.py:_load_clip` drops the first/last `TRIM = 45` frames of
-  every clip, so the T-pose never enters the library or any generated motion.
+  every clip, so the T-pose never enters the library or any generated motion. The shared
+  subject5 clips instead use **GenoView's exact per-clip windows** (`config.CLIP_TRIM`,
+  converted from its 60 fps ranges: walk `[160:15518]`, run `[172:14136]` → ÷2 at 30 fps).
 - **Jump library.** `walk1_subject5` + three G1-retargeted `walk_jump_walk*` clips (from
   `~/Projects/CAMDM`): short, nearly straight `walk → jump → walk` sequences. Concatenated
   into `data/motion_lib_jump.npz` (8290 frames).
 - **Multimodal locomotion library** (`data/motion_lib_loco.npz`, 15335 frames,
   `config.LOCO_JUMP_CLIPS`). The GenoView clips we have retargeted — `walk1_subject5`
-  (≤1.5 m/s) + `run1_subject5` (≤3.75 m/s) — as locomotion, plus the jump clips. A speed
-  command then steers motion matching between walk and run (`run_locomotion.py`).
-  `build_jump_library` phase-labels **only** the jump clips, so running's natural flight
-  phase isn't mistaken for a jump. (pushAndStumble, the 3rd GenoView clip, has no public G1
-  retarget, so it is omitted.)
+  (≤1.5 m/s) + `run1_subject5` (≤3.75 m/s) — as one undifferentiated **locomotion** skill,
+  plus the jump as the only separate skill. A speed command steers motion matching between
+  walk and run (`run_locomotion.py`); the **path experiments also use this library** now
+  (`run_experiments.py`), so locomotion = walk+run with only the jump distinguished — at the
+  experiments' 1 m/s command the velocity cost keeps the gait walking. `build_jump_library`
+  phase-labels **only** the jump clips, so running's natural flight phase isn't mistaken for
+  a jump. (pushAndStumble, the 3rd GenoView clip, has no public G1 retarget, so it is omitted.)
 - **Format.** Per frame, CSV row = 36 floats: root `(x,y,z, qx,qy,qz,qw)` (quat **xyzw**)
   + 29 joint angles in canonical Unitree order. MuJoCo free-joint qpos uses quat **wxyz**,
   so only the root quaternion is reordered. The menagerie `unitree_g1` model's joint order

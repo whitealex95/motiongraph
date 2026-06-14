@@ -60,9 +60,20 @@ BLEND_FRAMES = 12              # cross-fade length at a jump/transition (~0.4 s)
 SMOOTH_WINDOW = 9              # Savitzky-Golay window (frames) for root de-jitter
 
 # Every LAFAN1 clip begins and ends in a T-pose (arms out) that blends into the motion
-# over ~1.5 s. We DROP the first/last TRIM frames of every clip (see data.py:_load_clip)
-# so the T-pose never appears in the library or the generated motion.
+# over ~1.5 s. By default we DROP the first/last TRIM frames of every clip (symmetric;
+# see data.py:_load_clip) so the T-pose never appears.
 TRIM = 45
+
+# Per-clip [start:stop] trim windows MATCHING GenoView (orangeduck), converted from its
+# 60 fps ranges to our 30 fps (frame/2). GenoView hand-trims each clip to a chosen window
+# rather than a symmetric T-pose cut; we mirror that for the shared subject5 clips. Clips
+# not listed fall back to the symmetric TRIM above.
+#   GenoView 60 fps:  walk [160:15518]   run [172:14136]   pushAndStumble [397:706]
+CLIP_TRIM = {
+    "walk1_subject5": (80, 7759),
+    "run1_subject5": (86, 7068),
+    "pushAndStumble1_subject5": (198, 353),   # not retargeted/available; spec kept for parity
+}
 
 # A SINGLE continuous walking sequence -> a unimodal motion distribution (one subject,
 # one gait), so matching/graph never hop between styles or speeds. We use

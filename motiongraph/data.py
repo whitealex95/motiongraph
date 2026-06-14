@@ -8,8 +8,11 @@ from .g1_model import G1Model, csv_to_qpos, quat_wxyz_yaw
 
 def _load_clip(name, data_dir=C.DATA_DIR, trim=C.TRIM):
     rows = np.genfromtxt(os.path.join(data_dir, name + ".csv"), delimiter=",")
-    if trim:
-        rows = rows[trim:len(rows) - trim]   # drop T-pose blend frames at both ends
+    win = C.CLIP_TRIM.get(name)
+    if win is not None:                      # GenoView-matched [start:stop] window
+        rows = rows[win[0]:win[1]]
+    elif trim:
+        rows = rows[trim:len(rows) - trim]   # symmetric T-pose cut at both ends
     return csv_to_qpos(rows)  # (T, 36) wxyz
 
 

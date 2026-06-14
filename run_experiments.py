@@ -96,7 +96,7 @@ def _render(out, mk, tr, bx, name):
 
 if __name__ == "__main__":
     which = sys.argv[1] if len(sys.argv) > 1 else "both"
-    lib = load_library(C.JUMP_LIB_PATH)
+    lib = load_library(C.LOCO_LIB_PATH)   # walk + run locomotion; only the jump is a skill
     if which in ("mg", "both"):
         g = MotionGraph(lib, n_neighbors=28, tgt_stride=1)
         _render(*gen_planned(g, jump=False), "exp1_mg_path")

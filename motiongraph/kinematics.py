@@ -54,9 +54,12 @@ def ease_to_terminal(out, term, k, mode="full"):
         idx = len(out) - k + j
         planned = out[idx].copy()
         eased = blend_qpos(planned, term, w)                           # joints + orientation -> term
-        if mode != "pose":                                             # "full": also drag position
-            eased[0:3] = (1 - w) * planned[0:3] + w * term[0:3]        # position lerp -> term (drift)
-        out[idx] = eased                                               # "pose" keeps planned position
+        # NB blend_qpos copies position from `term`; restore the right root xyz per mode:
+        if mode == "pose":
+            eased[0:3] = planned[0:3]                                  # keep planned position (no drag)
+        else:                                                          # "full": lerp position -> term
+            eased[0:3] = (1 - w) * planned[0:3] + w * term[0:3]
+        out[idx] = eased
     return out
 
 
