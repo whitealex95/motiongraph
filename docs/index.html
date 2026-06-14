@@ -28,6 +28,12 @@
   code{background:#eef1f5;padding:1px 6px;border-radius:5px;font-size:14px}
   .note{background:#fdf3e9;border-left:3px solid var(--acc);padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0}
   .legend{font-size:14px;color:var(--mut)}
+  .def{font-size:14.5px;margin:10px 0}
+  .eq{display:block;text-align:center;margin:12px 0;font-size:16px;color:var(--fg)}
+  .eq i{font-style:italic}
+  .algo{background:#eef1f5;border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin:14px 0;overflow-x:auto}
+  .algo pre{margin:0;white-space:pre;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;color:#243042}
+  sub,sup{font-size:75%}
 </style>
 </head>
 <body>
@@ -95,7 +101,10 @@ path rather than planning to it.</p>
 <h2>4 · Experiment 2 — same path, jump over a box at (3,0)</h2>
 <p>A box sits at <code>(3,0)</code>, which the path crosses twice, so the robot must jump over the <b>same box</b>
 twice. The matcher reactively triggers a jump when the box is <b>ahead</b> (heading-aligned) and within <b>one jump's
-forward reach</b> (so the apex lands on the box).</p>
+forward reach</b>. <b>This is the reactive cousin of §5, not the planner:</b> it fires the <i>feature-best</i> jump
+(<code>best_jump_entry</code>) the instant the box is within reach, using the apex-reach idea only as a 1-D timing
+test — so the apex lands <i>near</i> the box (best-effort, ~0.1–0.2&nbsp;m), it is not <i>placed</i> on it. §5 below
+does the placement.</p>
 <div class="grid">
   <div class="card"><h4><span class="tag">MM</span> reactive jump trigger</h4>
     <video src="videos/exp2_mm.mp4" autoplay muted loop playsinline></video>
@@ -138,6 +147,64 @@ Both are <b>selection/placement, not arc-warping</b>, and neither is literal gra
 continuous and reactive, so the apex offset of a jump is a precomputable function of (clip, entry)
 and the only search is over that discrete catalogue plus the sub-frame switch position — far lighter
 than expanding a graph. A* only earns its keep with branching <i>choices</i> (which box, what order).</div>
+
+<h3>Algorithm &amp; math</h3>
+<p class="def"><b>Setup &amp; definitions.</b> The matcher carries a continuous <b>simulation root</b> — a
+ground position <i>p</i>&nbsp;∈&nbsp;ℝ² and a facing yaw <i>ψ</i> — and the pelvis is a local offset of
+it (§6). A <b>jump entry</b> <i>e</i> is one frame of a jump clip's <code>ready</code> run-up; the
+<b>catalogue</b> ℰ is every jump clip × {normal, mirror} × its <code>ready</code> frames (a few dozen).
+Each entry knows its own apex frame <code>apex(e)</code>, giving the clip-local apex displacement</p>
+<div class="eq">Δ(<i>e</i>) = R(<i>ψ</i><sub>e</sub><sup>clip</sup>)<sup>−1</sup> · ( <i>q</i><sub>apex(e)</sub> − <i>q</i><sub>e</sub> ) ∈ ℝ²,</div>
+<p class="def">where <i>q</i> is the clip's smoothed ground position and <i>ψ</i><sub>e</sub><sup>clip</sup>
+its facing at <i>e</i>. R(·) is a 2-D rotation; ‖·‖ is Euclidean distance.</p>
+
+<p class="def"><b>The apex anchor — why an object can be "baked" to a clip.</b> When we switch into <i>e</i>
+at world state <i>S</i> = (<i>p</i><sub>s</sub>, <i>ψ</i><sub>s</sub>), the jump plays as a <i>locked
+segment</i> whose root is integrated <b>only</b> from the clip's own velocity, re-headed by the carried
+yaw: &nbsp;<code>p ← p + R(ψ)·v̂<sub>clip</sub>·dt</code>, &nbsp;<code>ψ ← ψ + ω<sub>clip</sub>·dt</code>.
+Nothing about the walk-up enters that integral, so the apex <i>relative to the switch</i> is a fixed
+vector — the integral of the clip velocities equals the clip's own displacement
+<i>q</i><sub>apex</sub>−<i>q</i><sub>e</sub>, re-expressed in the switch frame:</p>
+<div class="eq">apex(<i>S</i>, <i>e</i>) = <i>p</i><sub>s</sub> + R(<i>ψ</i><sub>s</sub>) · Δ(<i>e</i>) &nbsp;(+&nbsp;<i>ρ</i>),</div>
+<p class="def">with <i>ρ</i> a small inertialization residual that decays in ~0.075&nbsp;s and is ≈&nbsp;0 by
+the apex. So Δ(<i>e</i>) is the <b>object baked into the clip</b>: pin a box at this offset and it rides
+with the jump, exactly, for any approach.</p>
+
+<p class="def"><b>Video&nbsp;1 — single fixed box <i>b</i> (rigid placement).</b> Play any jump (apex <i>a</i>),
+then translate the whole rollout by <i>d</i>&nbsp;=&nbsp;<i>b</i>&nbsp;−&nbsp;<i>a</i>. A rigid shift changes
+no velocity or contact, so apex&nbsp;→&nbsp;<i>b</i> <b>exactly</b>. One box ⇒ one global shift ⇒ exact.</p>
+<p class="def"><b>Video&nbsp;2 — course (box&nbsp;⟵&nbsp;apex).</b> Don't fix the boxes: play the jumps and
+set box<sub>k</sub>&nbsp;=&nbsp;apex<sub>k</sub>. Error is <b>0 by definition</b> — the box is the output.</p>
+<p class="def"><b>Video&nbsp;3 — planned (motion&nbsp;⟶&nbsp;fixed boxes).</b> The boxes <i>b</i><sub>k</sub> are
+fixed <i>inputs</i>, so we can only <b>select</b> a jump that lands on each. The only knobs (the ones the
+problem allows) are <i>which</i> entry <i>e</i>&nbsp;∈&nbsp;ℰ and <i>when</i> to switch (walk frame <i>n</i>,
+which sets <i>p</i><sub>s</sub>(<i>n</i>)). The reachable apex set is</p>
+<div class="eq">𝒜 = { <i>p</i><sub>s</sub>(<i>n</i>) + R(<i>ψ</i><sub>s</sub>)·Δ(<i>e</i>) &nbsp;:&nbsp; <i>e</i>&nbsp;∈&nbsp;ℰ, &nbsp;<i>n</i>&nbsp;=&nbsp;0,1,2,… },</div>
+<p class="def">and since <i>p</i><sub>s</sub>(<i>n</i>) advances one walk step per frame (≈&nbsp;speed/fps&nbsp;≈&nbsp;3&nbsp;cm
+at&nbsp;1&nbsp;m/s), 𝒜 is a <b>discrete lattice</b>. We solve, per box,</p>
+<div class="eq">(<i>e</i>*, <i>n</i>*) = argmin<sub><i>e</i>∈ℰ,&nbsp;<i>n</i></sub> ‖ apex(<i>S<sub>n</sub></i>, <i>e</i>) − <i>b</i><sub>k</sub> ‖.</div>
+<p class="def">The analytic Δ(<i>e</i>) carries a per-entry residual (the inertialization <i>ρ</i>), so instead
+of trusting the formula we evaluate the <b>true</b> apex by <i>real simulation</i> — a what-if probe that
+snapshots the controller, tries candidates, and reads the realized apex:</p>
+<div class="algo"><pre>plan_jump(box b):
+  shortlist ← K entries minimizing ‖ p_s + R(ψ_s)·Δ(e) − b ‖      # analytic gate (cheap)
+  S0 ← snapshot();   best ← ∞
+  for n in 0 … N−1:                          # try the next N switch frames
+      Sn ← snapshot()
+      for e in shortlist:                    # try each candidate clip+entry
+          restore(Sn);  force-enter e;  simulate the locked jump
+          a ← realized apex      (arg-max pelvis height in the rollout)
+          if ‖a − b‖ &lt; best:   best ← ‖a − b‖;   (e*, n*) ← (e, n)
+      restore(Sn);  walk one step
+  restore(S0);  return (e*, n*)              # execute: walk n* steps, then switch into e*</pre></div>
+<p class="def"><b>Why a residual remains (and §4 doesn't place).</b> The probe removes all <i>model</i> error (it
+uses the true sim), so the only thing left is that 𝒜 is <b>discrete</b> — a fixed point rarely lands on
+the lattice. Forward (x) has the fine ~3&nbsp;cm switch grid ⇒ ≤&nbsp;~2–3&nbsp;cm; lateral (y) has only the
+entry/mirror choice plus slow walk drift ⇒ up to ~10&nbsp;cm. Both sit well inside the ~0.26&nbsp;×&nbsp;0.56&nbsp;m
+box top. (A single continuous knob — a small approach-speed or heading trim, still a command, not a motion
+edit — would drive it to&nbsp;0; we keep the discrete, warp-free version here.) <b>§4</b> uses the same Δ
+only as a 1-D <i>timing</i> threshold with the default entry — no <code>argmin</code>, no probe — which is
+why it is best-effort, not placed.</p>
 
 <h2>6 · Method</h2>
 <p>A faithful port of GenoView's <code>genoview_g1.py</code> (reference: <code>~/Projects/motionmatching-g1</code>),
