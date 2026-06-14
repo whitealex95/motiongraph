@@ -86,20 +86,24 @@ def plot(out, name, model, path):
 
 
 def main(which):
-    import run_motion_matching as MM
-    import run_motion_graph as MG
-    gens = {"mm1": ("mm_task1", MM.gen_task1), "mm2": ("mm_task2", MM.gen_task2),
-            "mg1": ("mg_task1", MG.gen_task1), "mg2": ("mg_task2", MG.gen_task2)}
+    import run_experiments as E
+    import run_motion_matching as M
+    from motiongraph.data import load_library
+    from motiongraph.motion_matching import MotionMatcher
+    mm = MotionMatcher(load_library(C.LIB_PATH))
+    gens = {"exp1": ("exp1", lambda: E.gen_mm(mm, jump=False)),
+            "exp2": ("exp2", lambda: E.gen_mm(mm, jump=True)),
+            "demo": ("demo", lambda: M.gen_demo(mm))}
     model = G1Model()
     os.makedirs(C.OUT_DIR, exist_ok=True)
     print(f"{'clip':10} {'teleport[m]':>12} {'jitter':>10} {'skating[m/s]':>13}")
     for key in which:
         name, gen = gens[key]
-        out, _ = gen()
+        out = gen()[0]
         path = f"{C.OUT_DIR}/diag_{name}.png"
         m = plot(out, name, model, path)
         print(f"{name:10} {m['teleport']:12.3f} {m['jitter']:10.1f} {m['skating']:13.3f}  -> {path}")
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:] or ["mm1", "mm2", "mg1", "mg2"])
+    main(sys.argv[1:] or ["exp1", "exp2", "demo"])

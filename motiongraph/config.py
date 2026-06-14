@@ -1,37 +1,28 @@
-"""Shared constants: paths, skeleton layout, and feature settings."""
+"""Shared constants: paths, skeleton layout, and GenoView motion-matching settings."""
 import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(ROOT, "data", "g1")
-LIB_PATH = os.path.join(ROOT, "data", "motion_lib.npz")
 SCENE_XML = os.path.join(ROOT, "assets", "unitree_g1", "scene.xml")
 OUT_DIR = os.path.join(ROOT, "outputs")
 
 FPS = 30
 DT = 1.0 / FPS
 
-# Jump skill: a walk base clip + CAMDM walk->jump->walk clips (G1-retargeted LAFAN1).
-JUMP_DATA_DIR = os.path.join(ROOT, "data", "g1_jump")
-JUMP_LIB_PATH = os.path.join(ROOT, "data", "motion_lib_jump.npz")
-JUMP_BASE_WALK = "walk1_subject5"                       # CAMDM's main walk (arms down)
-JUMP_CLIPS = ["walk_jump_walk", "walk_jump_walk2", "walk_jump_stop"]   # from JUMP_DATA_DIR
+# The motion library: the three GenoView clips (subject5) -- walk, run, pushAndStumble --
+# retargeted to the G1 with GMR (General Motion Retargeting; .pkl under data/g1_gmr_lafan1/,
+# copied from ~/Projects/GMR), plus the CAMDM walk->jump->walk clips. Built once into LIB_PATH,
+# each clip added twice (normal + L/R mirrored, GenoView-style). All locomotion is one skill;
+# the jump clips are the only separate skill (entered only via a run-up).
+GMR_DATA_DIR = os.path.join(ROOT, "data", "g1_gmr_lafan1")        # GMR-retargeted LAFAN1 (.pkl)
+JUMP_DATA_DIR = os.path.join(ROOT, "data", "g1_jump")             # CAMDM jump clips (.csv)
+LIB_PATH = os.path.join(ROOT, "data", "motion_lib.npz")
+LOCO_CLIPS = ["walk1_subject5", "run1_subject5", "pushAndStumble1_subject5"]
+JUMP_CLIPS = ["walk_jump_walk", "walk_jump_walk2", "walk_jump_stop"]
 SKILLS = ["walk", "jump"]
 
-# Multimodal locomotion library: the THREE GenoView clips (subject5) -- walk, run AND
-# pushAndStumble -- retargeted to the G1 with GMR (General Motion Retargeting; .pkl files
-# under data/g1_gmr_lafan1/, copied from ~/Projects/GMR). All three are one locomotion skill
-# (skill=walk); only the jump clips are a separate skill. Speed commands then steer matching
-# between walk and run, and a trigger can jump (cf. run_locomotion.py).
-GMR_DATA_DIR = os.path.join(ROOT, "data", "g1_gmr_lafan1")        # GMR-retargeted LAFAN1 (.pkl)
-LOCO_JUMP_CLIPS = ["walk1_subject5", "run1_subject5", "pushAndStumble1_subject5"]
-LOCO_LIB_PATH = os.path.join(ROOT, "data", "motion_lib_loco.npz")
-# L/R-mirrored copy of the loco lib, used by the GenoView MotionMatcher (mirroring is part of
-# that algorithm); the motion graph keeps using the un-mirrored LOCO_LIB_PATH.
-LOCO_MIRROR_LIB_PATH = os.path.join(ROOT, "data", "motion_lib_loco_mirror.npz")
-
-# Per-frame jump phase (5 phases + walk). Flight = both feet airborne; the window
-# lengths (frames) carve the surrounding run-up / push-off / landing into phases.
-# Controllers may ENTER a jump only in `ready` and EXIT only after `after`.
+# Per-frame jump phase (5 phases + walk). Flight = both feet airborne; the window lengths
+# (frames) carve the surrounding run-up / push-off / landing. A jump is ENTERED only in
+# `ready` and EXITED only after `after`.
 JUMP_PHASES = ["walk", "ready", "takeoff", "flight", "touchdown", "after"]
 PHASE_READY = 12       # run-up before the push-off (the only place to enter a jump)
 PHASE_TAKEOFF = 10     # push-off / loading on the ground, just before lift-off
@@ -41,28 +32,12 @@ PHASE_AFTER = 18       # landing absorption / recovery walk (the only place to e
 # qpos layout (36-D), shared by the dataset and MuJoCo (same joint order):
 #   [0:3]  root position (x, y, z) in world metres
 #   [3:7]  root orientation quaternion -- DATASET stores xyzw, MuJoCo qpos stores wxyz
-#          (csv_to_qpos / transform_qpos do the reorder; see g1_model.py)
+#          (csv_to_qpos / mirror_qpos handle the reorder; see g1_model.py)
 #   [7:36] 29 joint angles (radians)
 JOINTS = slice(7, 36)
 
-# Foot bodies used for motion-matching pose features (names from menagerie g1.xml).
+# Foot bodies used for the pose features (names from menagerie g1.xml).
 FOOT_BODIES = ["left_ankle_roll_link", "right_ankle_roll_link"]
-
-# Motion-graph transition descriptor: which feature decides "can I splice frame i->j?".
-#   "mm_pose"    -- MM's 15-D pose feature (feet pos/vel + root vel); same representation MM
-#                   matches on, so MG and MM share the pose space (no PCA needed; low-dim).
-#   "mm_pose_vh" -- mm_pose + root height (z) + yaw rate (17-D): adds the height & turn-velocity
-#                   that the local feet feature underrepresents.
-#   "joint_pca"  -- the 62-D joint pose+velocity descriptor reduced to 16-D by PCA (Kovar-style
-#                   full-body continuity).
-MG_DESCRIPTOR = "mm_pose"
-
-# Motion-matching feature config.
-TRAJ_HORIZONS = [10, 20, 30]   # future sample frames (~0.33/0.67/1.0 s ahead)
-SEARCH_INTERVAL = 10           # motion-graph decision interval (frames, ~0.33 s)
-MM_SEARCH_INTERVAL = 15        # motion-matching search interval (~0.5 s; fewer jumps)
-BLEND_FRAMES = 12              # cross-fade length at a jump/transition (~0.4 s)
-SMOOTH_WINDOW = 9              # Savitzky-Golay window (frames) for root de-jitter
 
 # --- GenoView motion matching (Holden "Simple Motion Matching"); the MotionMatcher is a
 # faithful port of ~/Projects/motionmatching-g1 (genoview_g1.py). All math/params mirror it.
@@ -77,25 +52,16 @@ ROOT_POS_SMOOTH = 15           # Savitzky-Golay window for the smoothed sim-root
 ROOT_DIR_SMOOTH = 31           # Savitzky-Golay window for the smoothed sim-root heading
 MAX_SPEED = 5.0                # full-command speed (m/s); run pace
 WALK_SCALE = 0.4               # walk = MAX_SPEED * WALK_SCALE
+SMOOTH_WINDOW = 9              # Savitzky-Golay window (frames) for root de-jitter (cleanup.py)
 
-# Every LAFAN1 clip begins and ends in a T-pose (arms out) that blends into the motion
-# over ~1.5 s. By default we DROP the first/last TRIM frames of every clip (symmetric;
-# see data.py:_load_clip) so the T-pose never appears.
-TRIM = 45
-
-# Per-clip [start:stop] trim windows MATCHING GenoView (orangeduck), converted from its
-# 60 fps ranges to our 30 fps (frame/2). GenoView hand-trims each clip to a chosen window
-# rather than a symmetric T-pose cut; we mirror that for the shared subject5 clips. Clips
-# not listed fall back to the symmetric TRIM above.
+# Per-clip [start:stop] trim windows MATCHING GenoView (orangeduck), 60 fps ranges halved to
+# our 30 fps. GenoView hand-trims each clip to a chosen window rather than a symmetric T-pose
+# cut; clips not listed fall back to the symmetric TRIM. pushAndStumble's window isolates the
+# ~5 s stumble event out of the otherwise-ordinary clip.
 #   GenoView 60 fps:  walk [160:15518]   run [172:14136]   pushAndStumble [397:706]
+TRIM = 45
 CLIP_TRIM = {
     "walk1_subject5": (80, 7759),
     "run1_subject5": (86, 7068),
-    "pushAndStumble1_subject5": (198, 353),   # not retargeted/available; spec kept for parity
+    "pushAndStumble1_subject5": (198, 353),
 }
-
-# A SINGLE continuous walking sequence -> a unimodal motion distribution (one subject,
-# one gait), so matching/graph never hop between styles or speeds. We use
-# walk1_subject5 (the walk motion CAMDM uses as its main `walk`): natural arms-down
-# posture (walk1_subject2 walks with the hands raised). ~258 s, speeds up to ~1.3 m/s.
-LOCO_CLIPS = ["walk1_subject5"]

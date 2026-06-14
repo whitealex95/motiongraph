@@ -1,16 +1,11 @@
 """Motion matching demo on the G1 (GenoView controller).
 
-The MotionMatcher is now the reactive GenoView (Holden "Simple Motion Matching") controller
+The MotionMatcher is the reactive GenoView (Holden "Simple Motion Matching") controller
 (see motion_matching.py). This demo drives it with a time-varying speed/heading command and
 renders the result.
 
-In-betweening (arrive at a terminal state at a fixed time) is a *planned* task and the
-reactive GenoView MM does not do it -- use `run_motion_graph.py task2` (the motion graph's
-A* planner) for that.
-
 Usage: python run_motion_matching.py
 """
-import sys
 import numpy as np
 
 from motiongraph import config as C
@@ -34,7 +29,7 @@ def _cmd_marker(out, command):
 
 def gen_demo(mm=None, clean=True):
     """Speed-command-driven locomotion (walk <-> run) via the GenoView controller."""
-    mm = mm or MotionMatcher(load_library(C.LOCO_MIRROR_LIB_PATH))
+    mm = mm or MotionMatcher(load_library(C.LIB_PATH))
     cmd = demo_speed_schedule()
     out, tframe = mm.generate(cmd, seconds=15.0, start_frame=START, return_trace=True)
     trace = trace_labels(tframe, mm.lib)

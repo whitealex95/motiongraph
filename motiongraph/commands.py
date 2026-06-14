@@ -1,26 +1,17 @@
-"""Speed commands -> desired future trajectory used to query the motion database.
+"""Speed commands for the GenoView matcher.
 
-A command is a schedule of (start_time, speed[m/s], heading[rad]). The predicted
-trajectory slews the heading toward the target at a fixed turn rate and integrates
-at the commanded speed, then is expressed in the character's local frame to match
-the trajectory feature layout in features.py.
+A command is a schedule of (start_time, speed[m/s], heading[rad]); `state(t)` returns the
+(speed, heading) active at time t. The matcher feeds that to its trajectory springs each
+frame (motion_matching.step), so a time-varying command steers the gait (slow=walk,
+fast=run) and direction.
 """
 import numpy as np
-from . import config as C
-from .features import _local
-
-MAX_H = max(C.TRAJ_HORIZONS)
-
-
-def _wrap(a):
-    return (a + np.pi) % (2 * np.pi) - np.pi
 
 
 class SpeedCommand:
-    def __init__(self, schedule, turn_rate=2.5):
+    def __init__(self, schedule):
         # schedule: list of (t_start_sec, speed, heading_rad), sorted by t_start.
         self.schedule = sorted(schedule, key=lambda x: x[0])
-        self.turn_rate = turn_rate
 
     def state(self, t):
         """(speed, heading) active at time t seconds."""
@@ -29,26 +20,6 @@ class SpeedCommand:
             if t >= t0:
                 s = (spd, hd)
         return s
-
-    def desired_velocity(self, t):
-        spd, hd = self.state(t)
-        return spd * np.array([np.cos(hd), np.sin(hd)])
-
-    def trajectory(self, world_xy, world_yaw, t):
-        """Predicted future path -> trajectory feature block (4*len(horizons),)."""
-        spd, target = self.state(t)
-        pos, head = np.asarray(world_xy, float).copy(), world_yaw
-        traj = {0: (pos.copy(), head)}
-        for f in range(1, MAX_H + 1):
-            head = head + np.clip(_wrap(target - head), -self.turn_rate * C.DT, self.turn_rate * C.DT)
-            pos = pos + spd * C.DT * np.array([np.cos(head), np.sin(head)])
-            traj[f] = (pos.copy(), head)
-        block = []
-        for h in C.TRAJ_HORIZONS:
-            p, hd = traj[h]
-            block += list(_local(p - world_xy, world_yaw))
-            block += list(_local(np.array([np.cos(hd), np.sin(hd)]), world_yaw))
-        return np.array(block, np.float32)
 
 
 def demo_speed_schedule():

@@ -1,15 +1,13 @@
-"""Multimodal locomotion demo for motion matching: the GenoView clips we have retargeted
-(walk1_subject5 + run1_subject5) + the jump skill, all in one feature database.
+"""Multimodal locomotion demo: the three GMR-retargeted GenoView clips (walk, run,
+pushAndStumble) + the jump skill, in one GenoView feature database.
 
-A single speed command ramps walk -> run -> walk; motion matching picks walk frames at low
-speed and run frames at high speed (the trajectory feature encodes the commanded pace), then
-a trigger jumps. This is the classic motion-matching payoff: gait chosen by the data, not a
-state machine. (pushAndStumble, the 3rd GenoView clip, has no public G1 retarget, so it is
-omitted -- see config.LOCO_JUMP_CLIPS.)
+A single speed command ramps walk -> run -> walk; the matcher picks walk frames at low speed
+and run frames at high speed (the trajectory feature encodes the commanded pace), then a
+trigger jumps. This is the classic motion-matching payoff: gait chosen by the data, not a
+state machine.
 
 Usage: conda activate deploy_mujoco; MUJOCO_GL=glfw python run_locomotion.py
 """
-import numpy as np
 
 from motiongraph import config as C
 from motiongraph.data import load_library
@@ -27,7 +25,7 @@ CAM = dict(cam_dist=4.5, cam_elev=-12, cam_azim=130, width=900, height=620)  # r
 
 
 def main():
-    lib = load_library(C.LOCO_MIRROR_LIB_PATH)        # GMR walk+run+pushAndStumble+jump, mirrored
+    lib = load_library(C.LIB_PATH)        # GMR walk+run+pushAndStumble+jump, mirrored
     mm = MotionMatcher(lib)                            # GenoView controller (springs + inertialization)
     out, tframe = mm.generate(CMD, SECONDS, start_frame=START, jump_at=JUMP_AT, return_trace=True)
     out = cleanup(out)

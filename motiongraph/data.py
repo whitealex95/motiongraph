@@ -19,7 +19,7 @@ def _gmr_to_qpos(path):
     return q
 
 
-def _load_clip(name, data_dir=C.DATA_DIR, trim=C.TRIM):
+def _load_clip(name, data_dir=C.GMR_DATA_DIR, trim=C.TRIM):
     pkl = os.path.join(data_dir, name + ".pkl")
     if os.path.exists(pkl):                  # GMR-retargeted .pkl
         q = _gmr_to_qpos(pkl)
@@ -85,51 +85,15 @@ def _heuristic_box(q, feet, takeoff, land, hx=0.13, hy=0.28, margin=0.92, hmin=0
     return (apex, hx, hy, top / 2)
 
 
-def build_library(clips=None, out=C.LIB_PATH):
-    """Concatenate clips into one array; precompute heading and FK foot positions."""
-    clips = clips or C.LOCO_CLIPS
-    clips = [c for c in clips if os.path.exists(os.path.join(C.DATA_DIR, c + ".csv"))]
-    if not clips:
-        raise FileNotFoundError(f"No clips in {C.DATA_DIR}; run scripts/download_data.sh")
-
-    model = G1Model()
-    qpos, clip_id, frame_in_clip, lengths = [], [], [], []
-    for cid, name in enumerate(clips):
-        q = _load_clip(name)
-        qpos.append(q)
-        clip_id.append(np.full(len(q), cid))
-        frame_in_clip.append(np.arange(len(q)))
-        lengths.append(len(q))
-        print(f"  [{cid}] {name}: {len(q)} frames")
-
-    qpos = np.concatenate(qpos)
-    feet = model.fk_feet(qpos)                       # (N, 2, 3) world
-    yaw = quat_wxyz_yaw(qpos[:, 3:7])                 # (N,)
-
-    np.savez_compressed(
-        out,
-        qpos=qpos.astype(np.float32),
-        feet_world=feet.astype(np.float32),
-        yaw=yaw.astype(np.float32),
-        clip_id=np.concatenate(clip_id).astype(np.int32),
-        frame_in_clip=np.concatenate(frame_in_clip).astype(np.int32),
-        lengths=np.array(lengths, np.int32),
-        clip_names=np.array(clips),
-    )
-    print(f"Saved library: {qpos.shape[0]} frames, {len(clips)} clips -> {out}")
-    return out
-
-
-def build_jump_library(loco_clips=None, out=C.JUMP_LIB_PATH, loco_dir=C.DATA_DIR, mirror=False):
-    """Locomotion base clip(s) (skill=walk) + CAMDM walk->jump->walk clips.
+def build_library(loco_clips=None, out=C.LIB_PATH, loco_dir=C.GMR_DATA_DIR, mirror=True):
+    """Build the motion library: locomotion clips (skill=walk) + CAMDM jump clips, each added
+    twice (normal + L/R mirrored, GenoView-style) when `mirror`.
 
     Only the jump clips are phase-labeled; the locomotion clips stay skill=0 so they are
-    matched as locomotion. This matters once running is included: running has a natural
-    flight phase (both feet airborne) that _label_jump would otherwise mistake for a jump.
-    `loco_dir` is where the locomotion clips live (CSV dir, or the GMR .pkl dir). With
-    `mirror`, every clip is also added L/R-mirrored (GenoView-style, for the GenoView MM).
+    matched as locomotion -- running's natural flight phase (both feet airborne) would
+    otherwise be mistaken for a jump.
     """
-    loco_clips = loco_clips or [C.JUMP_BASE_WALK]
+    loco_clips = loco_clips or C.LOCO_CLIPS
     model = G1Model()
     specs = [(c, loco_dir, C.TRIM, False) for c in loco_clips] + \
             [(c, C.JUMP_DATA_DIR, 0, True) for c in C.JUMP_CLIPS]   # (name, dir, trim, is_jump)
@@ -179,25 +143,17 @@ def build_jump_library(loco_clips=None, out=C.JUMP_LIB_PATH, loco_dir=C.DATA_DIR
         jump_apex=np.array(j_apex, np.int32),
         jump_box=np.array(j_box, np.float32).reshape(-1, 3),   # per-jump box half-extents
     )
-    print(f"Saved jump library: {len(qpos)} frames, {int(np.concatenate(skill).sum())} "
-          f"jump frames, {len(j_entry)} jumps -> {out}")
+    print(f"Saved library: {len(qpos)} frames, {len(loaded)} clips, "
+          f"{int(np.concatenate(skill).sum())} jump frames, {len(j_entry)} jumps -> {out}")
     return out
 
 
 def load_library(path=C.LIB_PATH):
     if not os.path.exists(path):
-        if path == C.LOCO_MIRROR_LIB_PATH:                    # GMR loco+jump, L/R mirrored (GenoView MM)
-            build_jump_library(C.LOCO_JUMP_CLIPS, out=path, loco_dir=C.GMR_DATA_DIR, mirror=True)
-        elif path == C.LOCO_LIB_PATH:                         # GMR walk+run+pushAndStumble + jump
-            build_jump_library(C.LOCO_JUMP_CLIPS, out=path, loco_dir=C.GMR_DATA_DIR)
-        elif path == C.JUMP_LIB_PATH:
-            build_jump_library(out=path)                      # walk + jump
-        else:
-            build_library(out=path)                           # single-clip walk
+        build_library(out=path)
     d = np.load(path, allow_pickle=True)
     return {k: d[k] for k in d.files}
 
 
 if __name__ == "__main__":
     build_library()
-    build_jump_library()
