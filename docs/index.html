@@ -110,8 +110,8 @@ walk arrives, so the apex lands ~0.1–0.2&nbsp;m off a fixed box. Here the apex
 <b>exactly, every run</b> — and crucially <b>without distorting the jump</b>. (Apex&nbsp;x is a
 <i>step</i> function of the trigger time — the jump entry snaps to a discrete <code>ready</code>
 frame, so apex&nbsp;x jumps ~0.37&nbsp;m between adjacent triggers; forcing that residual through
-the short airborne arc would visibly stall the jump.) So we move the <b>geometry</b>, never the
-arc:</p>
+the short airborne arc would visibly stall the jump.) So we only ever <b>place or select</b> the
+genuine motion, never warp the arc — three takes below:</p>
 <div class="grid">
   <div class="card"><h4><span class="tag">MM</span> single fixed box — rigidly placed</h4>
     <video src="videos/exact_single_box.mp4" autoplay muted loop playsinline></video>
@@ -124,12 +124,20 @@ arc:</p>
     <p class="legend">A run of three jumps (gently steered to hold the line). Each box is <b>locked to
     its jump's natural apex</b> — the motion is baked into the object — so every apex lands exactly on
     its box with no warp at all. Repeatable and deterministic.</p></div>
+  <div class="card"><h4><span class="tag">MM</span> planned — FIXED boxes at 5 / 10 / 15 m</h4>
+    <video src="videos/exact_planned.mp4" autoplay muted loop playsinline></video>
+    <p class="legend">The <b>inverse</b> of the course: the boxes are pinned at <code>5</code>,
+    <code>10</code>, <code>15&nbsp;m</code> and the <b>motion is planned onto them</b>. The only
+    knobs are <i>which</i> <code>ready</code> entry (clip + switch point) and <i>when</i> to switch —
+    no warp. A real-simulation probe picks the entry whose true apex lands on each fixed box (realized
+    error ~2–10&nbsp;cm, well inside the footprint).</p></div>
 </div>
-<div class="note">This is <b>placement, not arc-warping</b>, and not literal graph A*. A* needs a
-discrete transition graph to expand; the matcher is continuous and reactive, so for "hit this fixed
-point" a rigid placement (single) or baking the box to the apex (course) is exact <i>and</i>
-artifact-free. A real A* planner only earns its keep when there are branching <i>choices</i> to plan
-over (which box, which order).</div>
+<div class="note"><b>Two directions, same idea.</b> The course <i>bakes the box onto the motion</i>
+(apex → box); the planned run <i>bakes the motion onto fixed boxes</i> (box → choose entry+switch).
+Both are <b>selection/placement, not arc-warping</b>, and neither is literal graph A*: the matcher is
+continuous and reactive, so the apex offset of a jump is a precomputable function of (clip, entry)
+and the only search is over that discrete catalogue plus the sub-frame switch position — far lighter
+than expanding a graph. A* only earns its keep with branching <i>choices</i> (which box, what order).</div>
 
 <h2>6 · Method</h2>
 <p>A faithful port of GenoView's <code>genoview_g1.py</code> (reference: <code>~/Projects/motionmatching-g1</code>),

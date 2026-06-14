@@ -27,7 +27,7 @@ from motiongraph.motion_matching import MotionMatcher
 from motiongraph.mm_features import yaw_quat
 from motiongraph.cleanup import cleanup
 from motiongraph.render import trace_labels, render_qpos
-from run_jump import _walk_jump, _box, _marker, SECONDS, START
+from run_jump import _walk_jump, _box, _marker, _rz, SECONDS, START
 
 
 # ---------------------------------------------------------------- helpers
@@ -133,6 +133,122 @@ def gen_course(mm, jump_times=(2.4, 5.4, 8.4), clean=True):
     return out, mk, trace_labels(tf, mm.lib), boxds, mm.gizmo_trace[:len(out)]
 
 
+# ---------------------------------------------------------------- planned: bake motion into FIXED boxes
+def _Rz(th, v):
+    c, s = np.cos(th), np.sin(th)
+    return np.array([c * v[..., 0] - s * v[..., 1], s * v[..., 0] + c * v[..., 1]]).T
+
+
+def _entry_deltas(mm):
+    """For every jump `ready` entry e: the apex offset in the entry's local frame, Δ_local(e).
+    Because the jump root is integrated purely from the clip's velocities, the world apex is
+    apex = entry_world + Rz(yaw_switch)·Δ_local(e) (approach-independent, up to the inertialization
+    residual we calibrate out). This is the 'object baked into the clip'."""
+    ents = [int(e) for e in mm.jump_enter]
+    DL = np.zeros((len(ents), 2))
+    for i, e in enumerate(ents):
+        a = int(mm.jump_apex_of[e]); th = float(mm.simThetaDB[e])
+        c, s = np.cos(-th), np.sin(-th)
+        v = mm.simPosDB[a][:2] - mm.simPosDB[e][:2]
+        DL[i] = [c * v[0] - s * v[1], s * v[0] + c * v[1]]
+    return np.array(ents), DL
+
+
+def _steady_walk(mm, n):
+    mm.reset(START)
+    mm.rootPos = np.array([0.0, 0.0, mm.rootPos[2]]); mm.rootYaw = 0.0
+    mm.rootRot = yaw_quat(0.0); mm.desiredDir = np.array([1.0, 0.0, 0.0])
+    for _ in range(n):
+        mm.step(1.0, float(np.arctan2(-mm.rootPos[1], 2.0)))
+
+
+def _probe_jump(mm, ents, DL, box, shortlist=14, ndelay=7, horizon=44):
+    """What-if search at the current state: try the most-promising entries (by analytic apex), at
+    each of the next few switch frames, by ACTUALLY simulating the locked jump and measuring the
+    true apex. Returns (best_entry, switch_delay, predicted_apex) for the smallest apex-box error.
+    Real simulation, so it captures inertialization exactly -- no warp, just selection."""
+    order = np.argsort(np.linalg.norm(mm.rootPos[:2] + _Rz(mm.rootYaw, DL) - box, axis=1))
+    cand = ents[order[:shortlist]]
+    snap0 = mm.state()
+    best = (1e9, int(cand[0]), 0, None)
+    for delay in range(ndelay):
+        snap_d = mm.state()
+        for e in cand:
+            mm.set_state(snap_d)
+            mm.trigger_jump(entry=int(e))
+            qs = np.array([mm.step(1.0, 0.0) for _ in range(horizon)])
+            a = int(qs[:, 2].argmax())
+            err = float(np.linalg.norm(qs[a, 0:2] - box))
+            if err < best[0]:
+                best = (err, int(e), delay, qs[a, 0:2].copy())
+        mm.set_state(snap_d)
+        mm.step(1.0, float(np.arctan2(-mm.rootPos[1], 2.0)))   # advance one walk frame
+    mm.set_state(snap0)
+    return best[1], best[2], best[3]
+
+
+def _box_for_entry(mm, entry, pos, label):
+    """A box at FIXED `pos`, sized from the jump clip that `entry` belongs to (so it clears)."""
+    lib, cid = mm.lib, int(mm.clip_id[int(entry)])
+    half = lib["jump_box"][0]
+    for k, t in enumerate(lib["jump_takeoff"]):
+        if int(lib["clip_id"][t]) == cid:
+            half = lib["jump_box"][k]; break
+    half = [float(h) for h in half]
+    return dict(pos=[float(pos[0]), float(pos[1]), half[2]], half=half, mat=_rz(0.0),
+                rgba=[0.96, 0.45, 0.10, 1.0], label=label)
+
+
+def gen_planned(mm, boxes=((5.0, 0.0), (10.0, 0.0), (15.0, 0.0)), clean=True, seconds=26.0):
+    """FIXED boxes at `boxes`: plan each jump so its apex lands on the box, choosing only WHICH
+    `ready` entry (clip + switch point) and WHEN to switch -- no motion warp. An analytic apex
+    estimate gates the approach; near the trigger point a real-simulation probe (`_probe_jump`)
+    picks the entry+switch-frame whose true apex is closest to the fixed box."""
+    ents, DL = _entry_deltas(mm)
+    _steady_walk(mm, 0)                                   # reset to origin, facing +x
+    bi, out, tf, chosen, n = 0, [], [], [], int(seconds * C.FPS)
+    while len(out) < n:
+        pos, yaw = mm.rootPos[:2].copy(), mm.rootYaw
+        if bi < len(boxes) and not mm.jumping:
+            box = np.array(boxes[bi], float)
+            apex = pos + _Rz(yaw, DL)                            # analytic gate (rough)
+            err = np.linalg.norm(apex - box, axis=1)
+            err_n = np.linalg.norm(pos + np.array([np.cos(yaw), np.sin(yaw)]) * C.DT
+                                   + _Rz(yaw, DL) - box, axis=1)
+            if err.min() < 0.8 and err.min() <= err_n.min():    # near the analytic local min
+                e_star, delay, ap = _probe_jump(mm, ents, DL, box)   # real-sim refinement
+                for _ in range(delay):
+                    h = float(np.arctan2(-mm.rootPos[1], 2.0))
+                    out.append(mm.step(1.0, h)); tf.append(mm.cur)
+                mm.trigger_jump(entry=e_star)
+                chosen.append((bi, e_star, ap)); bi += 1
+                continue
+        out.append(mm.step(1.0, float(np.arctan2(-pos[1], 2.0)))); tf.append(mm.cur)
+        if bi >= len(boxes) and not mm.jumping and pos[0] > boxes[-1][0] + 1.5:
+            break
+    out = np.asarray(out)
+    if clean:
+        out = cleanup(out)
+    # report realized apex error at each box, build the fixed boxes
+    _, thr = _ground_thr(out[:, 2])
+    segs = _flight_segments(out[:, 2], thr)
+    for (bi_, e_star, ap), seg in zip(chosen, segs):
+        a = seg[1]
+        bx = np.asarray(boxes[bi_], float)
+        print(f"  planned: box {bi_ + 1} @ ({bx[0]:.1f},{bx[1]:.1f})  entry {e_star} "
+              f"({mm.lib['clip_names'][int(mm.clip_id[e_star])]})  realized apex "
+              f"({out[a, 0]:.3f}, {out[a, 1]:.3f})  err {np.linalg.norm(out[a, 0:2] - bx):.3f} m")
+    boxds = [_box_for_entry(mm, e_star, boxes[bi_], f"BOX {bi_ + 1} ({boxes[bi_][0]:.0f}m)")
+             for (bi_, e_star, _) in chosen]
+    if segs:
+        out, tf = out[:min(len(out), segs[-1][2] + 30)], tf[:min(len(tf), segs[-1][2] + 30)]
+    tops = _box_tops(boxds)
+
+    def mk(t):
+        return [([x, y, z], 0.07, [0.2, 1.0, 0.2, 1]) for (x, y, z) in tops]
+    return out, mk, trace_labels(tf, mm.lib), boxds, mm.gizmo_trace[:len(out)]
+
+
 # ---------------------------------------------------------------- render
 SINGLE_CAM = dict(cam_dist=4.5, cam_elev=-12, cam_azim=120, width=900, height=620)
 COURSE_CAM = dict(cam_dist=5.0, cam_elev=-12, cam_azim=115, width=960, height=600)
@@ -148,4 +264,8 @@ if __name__ == "__main__":
     if which in ("course", "all"):
         out, mk, tr, bxs, gz = gen_course(mm)
         render_qpos(out, f"{C.OUT_DIR}/exact_course.mp4", markers_fn=mk, trace=tr,
+                    boxes=bxs, gizmo=gz, **COURSE_CAM)
+    if which in ("planned", "all"):
+        out, mk, tr, bxs, gz = gen_planned(mm)
+        render_qpos(out, f"{C.OUT_DIR}/exact_planned.mp4", markers_fn=mk, trace=tr,
                     boxes=bxs, gizmo=gz, **COURSE_CAM)

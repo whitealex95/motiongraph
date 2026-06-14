@@ -21,6 +21,7 @@ VIDEOS = [
     ("loco_mm_walk_run_jump.mp4", "loco_mm_walk_run_jump.mp4"),
     ("exact_single_box.mp4", "exact_single_box.mp4"),
     ("exact_course.mp4", "exact_course.mp4"),
+    ("exact_planned.mp4", "exact_planned.mp4"),
 ]
 
 

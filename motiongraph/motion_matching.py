@@ -76,16 +76,20 @@ class MotionMatcher:
         self.offPR = np.array([1.0, 0.0, 0.0, 0.0]); self.offPAng = np.zeros(3)
         self.searchTimer = 0.0
         self.jump_pending = False
+        self.jump_entry_override = None
         self.jump_locked = 0
         self.Tpos = np.tile(self.rootPos, (len(HORIZONS), 1))
         self.Tdir = np.tile(self.desiredDir, (len(HORIZONS), 1))
         self.gizmo_trace = []    # per-step (Tpos, Tdir) command gizmo, for offline rendering
 
     # --- jump skill ----------------------------------------------------------
-    def trigger_jump(self):
-        """Request a jump. Honoured on the next step if not already jumping."""
+    def trigger_jump(self, entry=None):
+        """Request a jump. Honoured on the next step if not already jumping. `entry` optionally
+        forces a SPECIFIC `ready` run-up frame (a chosen clip + switch point) instead of the
+        feature-best one -- used by the planner to place the apex on a fixed box."""
         if self.jump_locked == 0:
             self.jump_pending = True
+            self.jump_entry_override = entry
 
     @property
     def jumping(self):
@@ -94,6 +98,26 @@ class MotionMatcher:
     @property
     def cur(self):
         return self.animFrame
+
+    # --- state snapshot/restore (for the planner's what-if jump probes) -------
+    _STATE = ("animRange", "animFrame", "rootPos", "rootVel", "rootAcc", "rootAng", "rootYaw",
+              "rootRot", "desiredDir", "offDof", "offDofVel", "offPP", "offPPVel", "offPR",
+              "offPAng", "searchTimer", "jump_pending", "jump_entry_override", "jump_locked",
+              "Tpos", "Tdir")
+
+    def state(self):
+        """Snapshot the dynamic controller state (copies arrays). Cheap; does not touch the DB."""
+        d = {k: (v.copy() if isinstance(v, np.ndarray) else v) for k, v in
+             ((k, getattr(self, k)) for k in self._STATE)}
+        d["_giz"] = len(self.gizmo_trace)
+        return d
+
+    def set_state(self, d):
+        """Restore a snapshot from state(); rolls back any gizmo_trace appended since."""
+        for k in self._STATE:
+            v = d[k]
+            setattr(self, k, v.copy() if isinstance(v, np.ndarray) else v)
+        del self.gizmo_trace[d["_giz"]:]
 
     def best_jump_entry(self, cur=None):
         """Pre-take-off `ready` run-up frame whose features best match the current frame, so
@@ -136,10 +160,15 @@ class MotionMatcher:
             self.rootRot, self.rootAng, desiredRot, C.ROT_HALFLIFE, dt_col)
         self.Tdir = quat.mul_vec(Trot, FORWARD)
 
-        # ---- Jump trigger: inertialize into the best `ready` run-up, then lock ----
+        # ---- Jump trigger: inertialize into the chosen (or best) `ready` run-up, then lock ----
         if self.jump_pending and self.jump_locked == 0:
             self.jump_pending = False
-            je = self.best_jump_entry()
+            ov = self.jump_entry_override
+            self.jump_entry_override = None
+            if ov is not None and int(ov) in self.jump_land_of:    # planner: a forced entry
+                je = (int(ov), self.jump_land_of[int(ov)])
+            else:
+                je = self.best_jump_entry()
             if je is not None:
                 entry, land = je
                 rng = int(np.searchsorted(starts, entry, "right") - 1)

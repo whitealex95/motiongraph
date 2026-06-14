@@ -149,10 +149,27 @@ jump "stalls" at the apex). So we move the **geometry**, never the arc.
    apex** ("motion baked into the object"). Exact by construction, again no warp. The trailing
    walk after the last landing is trimmed.
 
+3. **Planned onto FIXED boxes** (`gen_planned`, the *inverse* of the course). Boxes are pinned at
+   `(5,0), (10,0), (15,0)`; the motion is planned onto them using **only** the two DOFs that leave
+   the jump genuine — *which* `ready` entry (clip + switch point) and *when* to switch. Enablers:
+   - **Apex anchor.** Because the jump root is integrated purely from clip velocities, the apex is
+     `entry_world ⊕ Rz(yaw_switch)·Δ_local(clip, entry)` — a precomputable offset per entry
+     (`_entry_deltas`). The analytic form has ~3 cm–0.3 m per-entry error (inertialization
+     residual), so it only *gates* the approach.
+   - **Real-sim probe** (`_probe_jump` + `MotionMatcher.state`/`set_state`). Near the trigger
+     point, snapshot the controller, and for the most-promising entries × the next few switch
+     frames, **actually simulate the locked jump** and measure the true apex; commit the
+     (entry, switch-delay) with the smallest apex–box error. `trigger_jump(entry=…)` forces that
+     specific entry. Realized error ~2–10 cm (well inside the ~0.26×0.56 m footprint).
+   The matcher is steered to hold the `y=0` line; `_box_for_entry` sizes each fixed box from its
+   chosen clip.
+
 **Why not literal A\*.** A\* expands a discrete transition graph; the matcher is continuous and
-reactive with no such graph (building one = the `master` motion-graph planner). For "hit this
-fixed point," rigid placement / baking is exact *and* artifact-free. A\* only earns its keep with
-branching choices (which box / what order). Demos: `exact_single_box.mp4`, `exact_course.mp4`.
+reactive with no such graph (building one = the `master` motion-graph planner). The apex offset of
+a jump is a function of (clip, entry), so "hit this fixed point" is a search over that discrete
+catalogue + the sub-frame switch position — far lighter than expanding a graph. A\* only earns its
+keep with branching choices (which box / what order). Demos: `exact_single_box.mp4` (rigid),
+`exact_course.mp4` (box baked to apex), `exact_planned.mp4` (motion planned onto fixed boxes).
 
 ---
 
@@ -222,7 +239,7 @@ motiongraph/
 run_locomotion.py    speed-driven walk -> run -> jump demo
 run_motion_matching.py   command-following locomotion demo
 run_experiments.py   square-path experiments (+ reactive box jump)
-run_exact_box.py     exact box-jump: fixed single box (rigid placement) + course (box baked to apex)
+run_exact_box.py     exact box-jump: single (rigid), course (box->apex), planned (motion->fixed boxes via probe)
 run_jump.py          jump demos: on command / at a searched location / raw
 tools/diagnose.py    quality metrics + plots
 ```
