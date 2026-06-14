@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Motion Matching & Motion Graphs on the Unitree G1 — Path & Jump experiments</title>
+<title>GenoView Motion Matching on the Unitree G1</title>
 <style>
   :root{--bg:#0e1116;--card:#171c24;--fg:#e6e9ee;--mut:#9aa4b2;--acc:#ff9a3c;--blue:#5aa0ff;}
   *{box-sizing:border-box}
@@ -34,24 +34,25 @@
 </head>
 <body>
 <header>
-  <h1>Motion Matching &amp; Motion Graphs on the Unitree&nbsp;G1</h1>
-  <p class="mut">A testbed comparing two classic data-driven controllers — <b>motion matching (MM)</b> and
-  <b>motion graphs (MG)</b> — driving the G1 humanoid on LAFAN1 mocap, with a phase-segmented, world-anchored
-  <b>jump skill</b>. Below: the source data, a multimodal walk/run/jump matching demo, an interactive graph, two path
-  experiments for each method, and the method details.</p>
+  <h1>GenoView Motion Matching on the Unitree&nbsp;G1</h1>
+  <p class="mut">A faithful port of <a href="https://github.com/orangeduck/GenoViewPython" target="_blank">GenoView</a>'s
+  ("Simple Motion Matching", Holden) controller, driving the G1 humanoid over GMR-retargeted LAFAN1 walk/run/stumble
+  clips plus a phase-segmented jump skill. Reactive nearest-neighbour search — no neural network, no planner, no
+  authored blend trees. Below: the source data, a speed-driven walk·run·jump demo, two path experiments, and the
+  method.</p>
   <p class="legend">All motion is kinematic playback of retargeted mocap fragments (no physics). Blue dots = path
   corners; orange box = obstacle to jump over.</p>
 </header>
 <main>
 
 <h2>1 · Source data</h2>
-<p>The <b>locomotion</b> is the three <a href="https://github.com/orangeduck/GenoViewPython" target="_blank">GenoView</a>
+<p>The locomotion is the three <a href="https://github.com/orangeduck/GenoViewPython" target="_blank">GenoView</a>
 <code>subject5</code> clips — <b>walk, run, pushAndStumble</b> — retargeted to the G1 with
 <a href="https://github.com/YanjieZe/GMR" target="_blank">GMR</a> (General Motion Retargeting). GMR targets a 29-DOF G1
-whose joint order is identical to our menagerie model, so the data maps straight to our qpos (verified by render).
-Each clip uses <b>GenoView's exact per-clip window</b> (walk 160–15518, run 172–14136, pushAndStumble 397–706 at
-60&nbsp;fps, ÷2 for our 30&nbsp;fps). The <b>jump</b> skill is the separate CAMDM <code>walk→jump→walk</code> clips
-(30&nbsp;FPS).</p>
+whose joint order is identical to our menagerie model, so the data maps straight to our qpos (verified by render). Each
+clip uses <b>GenoView's exact per-clip window</b> (walk 160–15518, run 172–14136, pushAndStumble 397–706 at 60&nbsp;fps,
+÷2 for our 30&nbsp;fps), and is added twice — once normal, once <b>L/R-mirrored</b> (GenoView-style). The <b>jump</b>
+skill is the separate CAMDM <code>walk→jump→walk</code> clips.</p>
 <div class="grid">
   <div class="card"><h4>walk — <code>walk1_subject5</code> <span class="tag">GMR</span></h4>
     <video src="videos/dataset_walk.mp4" autoplay muted loop playsinline></video>
@@ -61,179 +62,72 @@ Each clip uses <b>GenoView's exact per-clip window</b> (walk 160–15518, run 17
     <p class="legend">~233&nbsp;s run (up to ~3.75&nbsp;m/s, real airborne flight phase). The fast end of the gait.</p></div>
   <div class="card"><h4>pushAndStumble — <code>pushAndStumble1_subject5</code> <span class="tag">GMR</span></h4>
     <video src="videos/dataset_pushstumble.mp4" autoplay muted loop playsinline></video>
-    <p class="legend">GenoView's short window is an <b>in-place stumble / balance recovery</b> (~5&nbsp;s, no travel) — it
-    adds perturbation/recovery poses to the locomotion set rather than a traveling gait.</p></div>
+    <p class="legend">GenoView's short window is an <b>in-place stumble / balance recovery</b> (~5&nbsp;s, no travel) —
+    perturbation/recovery poses rather than a traveling gait.</p></div>
   <div class="card"><h4>jump — <code>walk_jump_walk</code> (walk → jump → walk)</h4>
     <video src="videos/dataset_jump.mp4" autoplay muted loop playsinline></video>
     <p class="legend">Short, nearly straight clips that walk, jump, and keep walking. Used for the jump skill.</p></div>
 </div>
 
-<h2>2 · Multimodal motion matching — walk · run · jump</h2>
-<p>The locomotion database holds the three GMR-retargeted GenoView clips — <code>walk</code>, <code>run</code>,
-<code>pushAndStumble</code> — as a single undifferentiated <b>locomotion</b> skill, plus the jump as the only separate
-skill. A single <b>speed command</b> ramps the desired pace; motion matching then picks <b>walk</b> frames at low speed
-and <b>run</b> frames at high speed (the trajectory feature encodes the commanded pace), with no state machine — the
-gait is chosen by the data. A trigger near the end performs a <b>jump</b>. (This same locomotion+jump database also
-drives the path experiments below; pushAndStumble is in-place, so the traveling demo rarely selects it.)</p>
+<h2>2 · Speed-driven gait — walk · run · jump</h2>
+<p>A single <b>speed command</b> ramps the desired pace; the matcher picks <b>walk</b> frames at low speed and
+<b>run</b> frames at high speed (the trajectory feature encodes the commanded pace), with no state machine — the gait
+is chosen by the data. A trigger near the end performs a <b>jump</b>.</p>
 <div class="grid">
-  <div class="card"><h4><span class="tag">MM</span> speed-driven gait: walk → run → walk → jump</h4>
+  <div class="card"><h4><span class="tag">MM</span> walk → run → walk → jump</h4>
     <video src="videos/loco_mm_walk_run_jump.mp4" autoplay muted loop playsinline></video>
     <p class="legend">HUD shows the live source clip: <code>walk1_subject5</code> at a stroll, <code>run1_subject5</code>
-    once commanded fast, then the jump clip on the trigger. This is the classic motion-matching payoff that a motion
-    <i>graph</i> can't do as directly — speed continuously selects the gait. The matcher is the <b>GenoView
-    controller</b> (per-clip KD-trees, critically-damped trajectory springs, inertialized transitions; see Method).</p></div>
+    once commanded fast, then the jump clip on the trigger. Transitions are inertialized (no cross-fade); the world
+    root is integrated from the matched clip's smooth velocity.</p></div>
 </div>
 
-<h2>3 · Interactive motion graph</h2>
-<p>The motion graph itself, live in your browser. <b>Left:</b> a 3-D G1 skeleton playing a graph-generated motion
-(press <b>play</b> or drag the time slider; orbit with the mouse). <b>Right:</b> the <i>full</i> graph embedded in 2-D
-pose space (PCA of the transition descriptor) — every frame is a node, faint grey lines are walk↔walk transition
-edges, and the traversal lights up edge-by-edge as the skeleton moves: <b>blue = continue</b> (next frame),
-<b>gold = a graph transition</b> (a non-consecutive index jump — the graph splices to a far-away frame), and
-<b>orange = the jump skill</b>. So the walk-only graph shows blue + gold but <i>no</i> orange — it has no jump frames;
-only the walk+jump graph triggers a real jump. The two views are time-synced.</p>
+<h2>3 · Experiment 1 — follow a square path</h2>
+<p>Path <code>(0,0)→(6,0)→(6,6)→(0,6)→(0,0)→(6,0)</code> (a 6×6 m loop, last edge re-traced). The matcher is
+<b>steered</b> toward each corner (a go-to-point heading fed to the controller); it has no planner, so it follows the
+path rather than planning to it.</p>
 <div class="grid">
-  <div class="card"><h4><span class="tag">walk + jump</span> graph with the jump skill</h4>
-    <iframe src="graph_jump.html" loading="lazy" style="width:100%;height:560px;border:0;border-radius:8px;background:#fff"></iframe>
-    <p class="legend">Lime diamonds = the only <b>jump entry</b> frames (pre-take-off run-ups); green = jump→walk
-    rejoin edges; orange dots = jump frames. <a href="graph_jump.html" target="_blank">Open fullscreen ↗</a></p></div>
-  <div class="card"><h4><span class="tag">walk only</span> single-clip locomotion graph</h4>
-    <iframe src="graph_walk.html" loading="lazy" style="width:100%;height:560px;border:0;border-radius:8px;background:#fff"></iframe>
-    <p class="legend">One unimodal walk clip: a dense web of walk↔walk transitions and a single traversal threading
-    through it. Gold segments are graph transition cuts (splices to a far frame); <b>no orange — there are no jumps
-    here</b>. <a href="graph_walk.html" target="_blank">Open fullscreen ↗</a></p></div>
-</div>
-<p class="legend mut">Each plot is a self-contained interactive figure (~2–5&nbsp;MB, loads on scroll). If an embed is
-slow on mobile, use the “Open fullscreen” link.</p>
-
-<h2>4 · Experiment 1 — follow a square path</h2>
-<p>Path <code>(0,0)→(6,0)→(6,6)→(0,6)→(0,0)→(6,0)</code> (a 6×6 m loop, last edge re-traced). The locomotion is the
-GMR <b>walk+run+pushAndStumble</b> database (only the jump is a separate skill); at this 1&nbsp;m/s command the gait stays walking — the
-velocity cost keeps run out unless commanded fast.</p>
-<div class="grid">
-  <div class="card"><h4><span class="tag">Motion graph</span> A*-planned corners</h4>
-    <video src="videos/exp1_mg.mp4" autoplay muted loop playsinline></video>
-    <p class="legend">Each corner is reached by an <b>A* plan</b> (<code>plan_to</code>); the path closes (≈6×6 m,
-    corners rounded by ~0.8&nbsp;m). LAFAN1 walk/run has no sharp turns (~5&nbsp;m turn radius), and the richer multimodal
-    graph rounds the corners a little more than the unimodal walk did.</p></div>
-  <div class="card"><h4><span class="tag">Motion matching</span> reactive, steered</h4>
+  <div class="card"><h4><span class="tag">MM</span> reactive, steered</h4>
     <video src="videos/exp1_mm.mp4" autoplay muted loop playsinline></video>
-    <p class="legend">MM is the <b>GenoView controller</b> (reactive — no planner). It is <b>steered</b> toward each
-    corner (a go-to-point heading fed to the matcher), so it traces the square but rounds the corners; it has no
-    look-ahead, so it follows the path rather than planning to it.</p></div>
+    <p class="legend">Traces the square but rounds the corners (LAFAN1 walk/run has no sharp turns, ~5&nbsp;m turn
+    radius). The controller responds to the commanded heading frame-by-frame.</p></div>
 </div>
 
-<h2>5 · Experiment 2 — same path, jump over a box at (3,0)</h2>
-<p>A box sits at <code>(3,0)</code>, which the path crosses twice (the two <code>→(6,0)</code> legs), so the robot
-must jump over the <b>same box</b> twice.</p>
+<h2>4 · Experiment 2 — same path, jump over a box at (3,0)</h2>
+<p>A box sits at <code>(3,0)</code>, which the path crosses twice, so the robot must jump over the <b>same box</b>
+twice. The matcher reactively triggers a jump when the box is <b>ahead</b> (heading-aligned) and within <b>one jump's
+forward reach</b> (so the apex lands on the box).</p>
 <div class="grid">
-  <div class="card"><h4><span class="tag">Motion graph</span> A*-planned approach to each jump</h4>
-    <video src="videos/exp2_mg.mp4" autoplay muted loop playsinline></video>
-    <p class="legend"><span class="ok">Both jumps land on the box</span> (apex within ~0.15&nbsp;m): each jump's
-    pre-take-off entry is reached by an A* plan, so the apex is anchored to the box even after the loop.</p></div>
-  <div class="card"><h4><span class="tag">Motion matching</span> reactive jump trigger</h4>
+  <div class="card"><h4><span class="tag">MM</span> reactive jump trigger</h4>
     <video src="videos/exp2_mm.mp4" autoplay muted loop playsinline></video>
-    <p class="legend">The GenoView MM <b>reactively</b> triggers a jump when the box is ahead and within one jump's
-    forward reach (no planner). Here both jumps land near the box (~0.1–0.2&nbsp;m) — the controller steers and
-    re-acquires the box well — but with no look-ahead the second pass is <span class="mut">best-effort</span> and can
-    drift.</p></div>
+    <p class="legend">Both jumps land near the box (~0.1–0.2&nbsp;m): the controller steers and re-acquires the box well.
+    With no look-ahead the second pass is <span class="mut">best-effort</span> and can drift — a reactive matcher
+    follows, it doesn't plan to a fixed point.</p></div>
 </div>
-<div class="note"><b>Planner vs. controller.</b> MG reaches each box with an <b>A* plan</b> (look-ahead), so its apex is
-anchored to the box even after the loop. MM is the reactive <b>GenoView controller</b> — it is steered and triggers
-the jump on a "box-ahead-and-in-reach" condition, with no planning. That's the standing MG↔MM distinction: a graph can
-be <i>planned over</i>; the GenoView matcher is reactive.</div>
 
-<h2>6 · Method</h2>
+<h2>5 · Method</h2>
+<p>A faithful port of GenoView's <code>genoview_g1.py</code> (reference: <code>~/Projects/motionmatching-g1</code>),
+real-time and reactive (<code>step(speed, heading)</code> each frame; an offline <code>generate()</code> wraps it for
+rendering).</p>
 
 <h3>Pipeline</h3>
-<p>Both controllers stitch mocap <i>fragments</i> under a shared backbone: a planar <b>root alignment</b> keeps the
-world path continuous at every cut; joint angles + root orientation are cross-faded over 12 frames; a post-process
-smooths the root (Savitzky–Golay on x,y) and runs <b>foot-lock IK</b> to remove sliding. Forward kinematics (MuJoCo)
-gives foot positions for features and the offline renderer.</p>
-
-<h3>Motion matching (MM)</h3>
-<p>MM is a faithful port of the <a href="https://github.com/orangeduck/GenoViewPython" target="_blank">GenoView</a>
-(Holden "Simple Motion Matching") controller, real-time and reactive (no planner).</p>
 <ul>
 <li><b>Simulation root:</b> per clip, a Savitzky–Golay-smoothed ground position + facing that the matcher tracks; the
 pelvis is stored as a <i>local offset</i> of it. The database is also <b>L/R mirrored</b> (each clip added twice).</li>
-<li><b>Features (27-D, sim-root-local):</b> foot positions (6) + foot &amp; pelvis velocities (9) + future sim-root
+<li><b>Feature (27-D, sim-root-local):</b> foot positions (6) + foot &amp; pelvis velocities (9) + future sim-root
 offset (6) and facing (6) at {10,20,30} frames; normalized by a per-block std.</li>
 <li><b>Search:</b> every 0.15&nbsp;s, query = <code>[current pose | desired trajectory]</code>; nearest neighbour over
 <b>per-clip KD-trees</b> (each clip's last 30 frames trimmed from the search so a full future always exists), biased
 toward staying in the current clip. Jump frames are excluded — a jump happens only on a trigger.</li>
-<li><b>Transitions = inertialization:</b> on a switch the pose discontinuity (joints + pelvis-local pos/rot, and their
-velocities) is captured as a <b>decaying-spring offset</b> and bled to zero over ~0.075&nbsp;s — no cross-fade, momentum
-preserved. The desired trajectory is predicted with <b>critically-damped springs</b>; the world root is integrated from
-the matched clip's smooth velocity.</li>
+<li><b>Transitions = inertialization:</b> on a switch the pose discontinuity (joints + pelvis-local pos/rot and their
+velocities) is captured as a <b>decaying-spring offset</b> and bled to zero over ~0.075&nbsp;s — no cross-fade,
+momentum preserved. The desired trajectory is predicted with <b>critically-damped springs</b>; the world root is
+integrated from the matched clip's smooth velocity.</li>
 </ul>
-
-<h3>Motion graph (MG)</h3>
-<ul>
-<li><b>Edges:</b> a transition connects frames whose <b>pose descriptors</b> are close (good blend points). We build
-edges on the <b>same 15-D pose feature MM matches on</b> (feet positions/velocities + root velocity) — so MG and MM
-now share one pose space. Jump frames are excluded as normal targets, so locomotion never accidentally jumps.
-<span class="mut">(Trade-off: this feet-based feature ignores arm/torso joint angles, so edges have ~35% larger
-upper-body discontinuity than the alternative full-joint descriptor — the cross-fade absorbs it. Switch back via
-<code>config.MG_DESCRIPTOR = "joint_pca"</code>.)</span></li>
-<li><b>Greedy following:</b> every few frames pick <code>{continue} ∪ {transitions}</code> by
-<code>cost(f)=‖v_local(f) − desired_local‖ + penalty</code> (1 candidate, reactive).</li>
-<li><b>A* planning (<code>plan_to</code>):</b> the only multi-step optimizer — used for the corners and the
-jump approaches (see below).</li>
-</ul>
-
-<h3>Descriptor ablation — what actually reduces the cut "pop"?</h3>
-<p>Stress test (forced transition every 8 frames, short cross-fade) of three descriptors, close-up. The number that
-matters is the <b>joint discontinuity at a cut</b> (L2, rad), split into legs vs upper body:</p>
-<video src="videos/compare_descriptors.mp4" autoplay muted loop playsinline style="max-width:760px"></video>
-<table>
-<tr><th>descriptor</th><th>dim</th><th>upper-body gap, all edges (mean / p90)</th><th>best cut available / node</th><th>cut taken by greedy</th></tr>
-<tr><td><code>joint_pca</code> (full body)</td><td>16</td><td>0.434 / 0.663</td><td>0.311</td><td>0.093</td></tr>
-<tr><td><code>mm_pose</code> (feet only)</td><td>15</td><td>0.588 / 1.010</td><td>0.378</td><td>0.109</td></tr>
-<tr><td><code>mm_pose_vh</code> (+ height + yaw-rate)</td><td>17</td><td>0.578 / 0.982</td><td>0.372</td><td><b>0.099</b></td></tr>
-</table>
-<p class="legend"><b>Adding velocity &amp; height helps the realized motion.</b> <code>mm_pose_vh</code> appends root height
-and yaw-rate to the feet feature. It barely changes the average edge, but the cuts greedy <i>actually takes</i> drop
-from 0.109 → 0.099 rad — nearly matching the full-body descriptor (0.093) — because turn-rate continuity stops it from
-splicing a left turn into a right one. It still can't fix arms it never sees, so it doesn't reach <code>joint_pca</code>.</p>
-<div class="note"><b>Does adding far more edges help? No — not the pop.</b> Sweeping <code>n_neighbors</code> 16→120 (and a
-looser radius) on <code>mm_pose</code> grows the graph 43k→460k edges. The <i>best</i> cut available per node improves
-(0.40→0.33, more choice), but the <i>average</i> edge gets <span class="bad">worse</span> (0.58→0.71, looser cuts
-admitted) and the cuts greedy actually takes stay flat (~0.09–0.12) — because the controller selects by velocity/goal,
-not by upper-body continuity. So more edges buys routing flexibility, not smoother blends; what fixes the pop is a
-better <b>descriptor</b> (or selecting edges <i>for</i> continuity), not more of them.</div>
-
-<h3>A* planning — and how it differs from beam search</h3>
-<p>We plan a least-cost sequence of graph moves that <b>arrives at a target</b> <i>(position, facing, pose)</i>. The
-graph node is <code>(clip&nbsp;frame, world placement)</code>; an edge is a <i>macro-step</i> (replay K=10 frames along
-a continuation or transition edge, re-aligned to the world). A* runs best-first over a priority queue ordered by
-<b>f&nbsp;=&nbsp;g&nbsp;+&nbsp;h</b>:</p>
-<ul>
-<li><b>g</b> (cost-so-far) = Σ ( <code>‖segment&nbsp;velocity − go-to-target&nbsp;velocity‖</code> + transition
-penalty ) — wandering is expensive, progress toward the target is cheap;</li>
-<li><b>h</b> (heuristic) = <code>w_pos · ‖xy − target‖</code> — a goal-distance estimate that <i>pulls</i> the
-frontier toward the target. A node within <code>reach</code> of the target is a goal; its g then absorbs
-<code>w_pos·‖xy−target‖ + w_yaw·|Δyaw| + w_pose·pose-distance</code>, and the first goal popped is returned.</li>
-</ul>
-<p>A discretized <b>closed set</b> (frame + rounded world pose) collapses revisits so the effectively-infinite state
-space stays finite. The winning node chain is then replayed with cross-fades and eased onto the exact terminal pose.</p>
-<table>
-<tr><th></th><th>A* (ours)</th><th>Beam search</th></tr>
-<tr><td>frontier</td><td>a priority queue of <b>all</b> open nodes, ordered by f = g + h</td><td>only the best <b>B</b> nodes per depth round</td></tr>
-<tr><td>expansion</td><td>pop the single lowest-f node, expand it</td><td>expand every kept node, then re-prune to B</td></tr>
-<tr><td>guidance</td><td>a <b>heuristic</b> aims the search at the goal</td><td>none — advances all survivors in lockstep depth</td></tr>
-<tr><td>guarantee</td><td>optimal with an admissible h (we use a goal-pulling h → fast, near-optimal)</td><td><b>not</b> optimal — may prune the best path</td></tr>
-<tr><td>fits when…</td><td>there's a goal-distance heuristic to follow</td><td>fixed horizon, no usable heuristic</td></tr>
-</table>
-<p class="legend">Why A* needs the heuristic here: with a <i>zero</i> heuristic, A* degenerates to Dijkstra and, given
-the graph's huge branching (~28 edges/node), exhausts its budget while still only halfway to the goal. The
-<code>‖xy−target‖</code> heuristic is what makes it dive toward the target and arrive in a few hundredths of a second.
-Beam search sidesteps the missing-heuristic problem by advancing a fixed-width front in lockstep — robust, but it can
-prune the optimal plan and has no goal pull. We switched the planner from beam search to A*.</p>
 
 <h3>Jump skill — five phases</h3>
-<p>Flight = both feet airborne; we carve five phases around it. A jump can be <b>entered only in <code>ready</code></b>
-and <b>exited only after <code>after</code></b> (never mid-air), which also prevents accidental jumps during walking.</p>
+<p>Flight = both feet airborne; we carve five phases around it. A jump is <b>entered only in <code>ready</code></b>
+(the run-up) and <b>exited only after <code>after</code></b> (recovery) — never mid-air — which also keeps locomotion
+from ever matching into a jump.</p>
 <div class="phasebar">
   <div style="flex:12;background:#3a4a63">ready (enter)</div>
   <div style="flex:10;background:#5a4a2e">take-off</div>
@@ -241,43 +135,32 @@ and <b>exited only after <code>after</code></b> (never mid-air), which also prev
   <div style="flex:6;background:#5a2e3a">touch-down</div>
   <div style="flex:18;background:#2e5a3a">after (exit)</div>
 </div>
-<p class="legend">Window lengths (frames): ready 12, take-off 10, flight ≈ data, touch-down 6, after 18.</p>
+<p class="legend">Window lengths (frames): ready 12, take-off 10, flight ≈ data, touch-down 6, after 18. The reactive
+box trigger fires when the box is within the jump's entry→apex forward travel, so the apex lands on it.</p>
 
 <h3>Heuristics</h3>
 <ul>
-<li><b>Box size:</b> per jump, a box centred under the apex; height = foot clearance over its footprint × 0.92
-(so the feet clear it). Half-extents (0.13, 0.28, ≤0.12) m — the data are low hops, so boxes are low.</li>
-<li><b>Jump anchoring:</b> apex ≈ entry + (entry→apex displacement). To land the apex on a box, plan the
-<code>ready</code> entry to <code>box − displacement</code> (corrected in <i>both</i> x and y).</li>
-<li><b>Foot-lock:</b> pin the two lowest sole spheres during steady stance via damped-least-squares IK on the 6 leg
-joints (root untouched). <b>Root de-jitter:</b> Savitzky–Golay on root x,y only (z kept so jump peaks survive).</li>
-<li><b>Corner hand-off (foot-drift fix):</b> chained A* segments must agree at the seam. The naïve easing forced the
-last 0.7&nbsp;s of each segment onto a shared terminal pose <i>including its root position</i> — which <b>drags the
-body to the exact corner decoupled from the footsteps</b>, i.e. foot-drift (the body glides to the corner while a foot
-is airborne). The fix (<code>ease="pose"</code>) eases joints <i>and heading</i> (so the next leg still pre-aligns and
-the planner navigates) but <b>keeps the root where the character actually walked</b> — no position drag. Corner-window
-root speed drops 1.16 → 0.60&nbsp;m/s (max 1.83 → 1.33): the body pivots to turn instead of sliding. Jump run-ups keep
-full easing (they must arrive exactly to land on the box). Residual sliding is the inherent kinematic-playback skate
-that foot-lock absorbs.</li>
+<li><b>Box size:</b> per jump, a box centred under the apex; height = foot clearance over its footprint × 0.92 (feet
+clear it). Half-extents (0.13, 0.28, ≤0.12) m — the data are low hops, so boxes are low.</li>
+<li><b>Foot-lock + de-jitter (post-process):</b> Savitzky–Golay smoothing of root x,y (z kept so jump peaks survive),
+then foot-lock IK pins the two lowest sole spheres during steady stance (damped least squares on the 6 leg joints).</li>
 <li><b>Turning:</b> LAFAN1 walk/run → ~5 m turn radius, so square corners are rounded (no sharp turns in the data).</li>
 </ul>
 
 <h3>Hyperparameters</h3>
 <table>
 <tr><th>name</th><th>value</th><th>name</th><th>value</th></tr>
-<tr><td>FPS</td><td>30</td><td>blend frames</td><td>12</td></tr>
-<tr><td>MM search time / current bias</td><td>0.15 s / 0.01</td><td>MG decision interval</td><td>10</td></tr>
-<tr><td>MM inert / vel / rot half-life</td><td>0.075 / 0.2 / 0.2 s</td><td>MM sim-root smooth (pos/dir)</td><td>15 / 31</td></tr>
-<tr><td>MM search-tail (per clip)</td><td>30 frames</td><td>MM mirror / max speed</td><td>L+R / 5 m/s</td></tr>
-<tr><td>MG neighbours / target stride</td><td>16 (28 for paths) / 2 (1)</td><td>MG descriptor</td><td>MM pose, 15-D</td></tr>
-<tr><td>A* macro-step K / arrival reach</td><td>10 / 0.7 m</td><td>root smooth window</td><td>9</td></tr>
-<tr><td>A* cost weights w_pos/w_yaw/w_pose/cmd</td><td>1.5 / 0.4 / 0.15 / 0.4</td><td>A* expansion budget</td><td>20000</td></tr>
+<tr><td>FPS</td><td>30</td><td>trajectory horizons</td><td>10/20/30 frames</td></tr>
+<tr><td>search time / current bias</td><td>0.15 s / 0.01</td><td>approx-NN eps</td><td>0.01</td></tr>
+<tr><td>inert / vel / rot half-life</td><td>0.075 / 0.2 / 0.2 s</td><td>sim-root smooth (pos/dir)</td><td>15 / 31</td></tr>
+<tr><td>search-tail (per clip)</td><td>30 frames</td><td>mirror / max speed</td><td>L+R / 5 m/s</td></tr>
 <tr><td>phase ready/take-off/touch/after</td><td>12 / 10 / 6 / 18</td><td>flight foot threshold</td><td>0.13 m</td></tr>
-<tr><td>box half (x,y)</td><td>0.13, 0.28 m</td><td>T-pose trim</td><td>45 frames/end</td></tr>
+<tr><td>box half (x,y)</td><td>0.13, 0.28 m</td><td>root smooth window</td><td>9</td></tr>
 </table>
 
-<p class="mut" style="margin-top:40px">Generated from the <code>motiongraph</code> repo. Full methods reference:
-<code>PAPER.md</code>; reproduce with <code>run_experiments.py</code>.</p>
+<p class="mut" style="margin-top:40px">Generated from the <code>motiongraph</code> repo (<code>mm-only</code> branch).
+Full methods reference: <code>PAPER.md</code>; reproduce with <code>run_experiments.py</code> /
+<code>run_locomotion.py</code>.</p>
 </main>
 </body>
 </html>

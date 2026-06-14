@@ -1,85 +1,64 @@
-# Paper notes — Motion Matching & Motion Graphs with a Jump Skill on the Unitree G1
+# Paper notes — GenoView Motion Matching with a Jump Skill on the Unitree G1 (mm-only)
 
-A single, living document collecting every technical detail of this project for paper
-writing. (Usage/quickstart lives in `README.md`; this file is the methods reference.)
-Sections are written so they can be lifted into Method / Implementation / Experiments.
+A living methods reference for the **motion-matching-only** branch. (Usage/quickstart lives
+in `README.md`.) Sections can be lifted into Method / Implementation / Experiments. The
+motion graph + A\* planner are on `master`.
 
 ---
 
 ## 1. Overview & contributions
 
-We build a compact testbed that drives the **Unitree G1** humanoid with two classic
-data-driven controllers — **motion matching (MM)** and **motion graphs (MG)** — on
-**LAFAN1** mocap retargeted to the G1, and extend MG with a **discrete skill (jump)** that
-is *phase-segmented* and *world-anchored*.
+We drive the **Unitree G1** humanoid with a faithful port of **GenoView**'s ("Simple Motion
+Matching", Holden) real-time controller, on **LAFAN1** mocap retargeted to the G1 with GMR,
+plus a *phase-segmented* **jump** skill.
 
-Contributions / things demonstrated:
-1. A shared kinematic backbone (root-motion stitching, FK features, foot-lock IK, offline
-   rendering) under which MM and MG are directly comparable.
-2. MM and MG locomotion driven by **speed commands** and **in-betweening** to a terminal.
-3. A **jump skill**: per-frame 5-phase labels (ready/take-off/flight/touch-down/after),
-   with the hard guarantee that a jump is **entered only in `ready`** and **exited only
-   after `after`**.
-4. **World-anchored jumps**: a jump's apex is pinned to a fixed obstacle (a box). The walk
-   into/out of the jump is an **in-between**, computed either reactively (greedy/NN) or by
-   **A\* planning** (`plan_to`) when precision is required.
-5. A composite task that satisfies a hard constraint: **jump over one box, loop, and jump
-   over the same box again**, with both apexes within ~0.25 m of the box.
+Things demonstrated:
+1. A reactive, real-time matcher (`step(speed, heading)`) — per-clip KD-trees, critically
+   damped trajectory springs, **inertialized** transitions, a velocity-integrated simulation
+   root — with an offline `generate()` wrapper for rendering.
+2. **Speed-driven gait**: one command selects walk vs run from a multimodal database (no
+   state machine), with an L/R-mirrored library.
+3. A **jump skill**: per-frame 5-phase labels (ready/take-off/flight/touch-down/after), with
+   the hard guarantee that a jump is **entered only in `ready`** and **exited only after
+   `after`**; the matcher triggers it from a run-up, reactively over a box.
 
 ---
 
 ## 2. Data
 
-- **Source.** LAFAN1 (Ubisoft) retargeted to Unitree robots; we use the public mirror
-  `lvhaidong/LAFAN1_Retargeting_Dataset` (G1, 30 FPS). Retargeting was IK +
-  interaction-mesh, **kinematic only** (no dynamics), so playback is likewise kinematic.
-- **Locomotion library.** A *single* clip **`walk1_subject5`** (~258 s, 7750 frames after
-  trimming) — the walk motion CAMDM uses as its main `walk`, with a natural **arms-down**
-  posture (`walk1_subject2`, used earlier, walks with the hands raised). One clip →
-  **unimodal** distribution (one subject, one gait) so matching/graph never hop styles.
-- **T-pose trimming (applied).** Every LAFAN1 clip starts/ends in a T-pose (arms out) that
-  blends in over ~1.5 s; `data.py:_load_clip` drops the first/last `TRIM = 45` frames of
-  every clip, so the T-pose never enters the library or any generated motion. The shared
-  subject5 clips instead use **GenoView's exact per-clip windows** (`config.CLIP_TRIM`,
-  converted from its 60 fps ranges: walk `[160:15518]`, run `[172:14136]` → ÷2 at 30 fps).
-- **Jump library.** `walk1_subject5` + three G1-retargeted `walk_jump_walk*` clips (from
-  `~/Projects/CAMDM`): short, nearly straight `walk → jump → walk` sequences. Concatenated
-  into `data/motion_lib_jump.npz` (8290 frames).
-- **Multimodal locomotion library** (`data/motion_lib_loco.npz`, 15356 frames,
-  `config.LOCO_JUMP_CLIPS`). The **three GenoView `subject5` clips — walk, run, pushAndStumble
-  — retargeted with GMR** (General Motion Retargeting; `data/g1_gmr_lafan1/*.pkl`, copied from
-  `~/Projects/GMR`) as one undifferentiated **locomotion** skill, plus the jump as the only
-  separate skill. GMR's `.pkl` (`root_pos`, `root_rot` xyzw, `dof_pos`@29, 30 fps) maps
-  straight to qpos (`data._gmr_to_qpos`); GMR targets `g1_mocap_29dof.xml`, whose joint order
-  is identical to our menagerie G1 (verified by render). A speed command steers matching
-  between walk (≤1.5 m/s) and run (≤3.75 m/s) (`run_locomotion.py`); the **path experiments
-  also use this library** (`run_experiments.py`), so locomotion = walk+run+pushAndStumble with
-  only the jump distinguished — at the experiments' 1 m/s the velocity cost keeps the gait
-  walking. `build_jump_library` phase-labels **only** the jump clips, so running's natural
-  flight phase isn't mistaken for a jump. (pushAndStumble's GenoView window is a ~5 s in-place
-  stumble — perturbation/recovery poses, not a traveling gait.)
-- **Format.** Per frame, CSV row = 36 floats: root `(x,y,z, qx,qy,qz,qw)` (quat **xyzw**)
-  + 29 joint angles in canonical Unitree order. MuJoCo free-joint qpos uses quat **wxyz**,
-  so only the root quaternion is reordered. The menagerie `unitree_g1` model's joint order
-  matches the CSV columns exactly.
-- **Library arrays.** `qpos (N,36)`, `feet_world (N,2,3)` (FK), `yaw (N)`, `clip_id`,
-  `frame_in_clip`, `lengths`, `clip_names`; for the jump library also `skill (N)`,
-  `phase (N)`, and per-jump `jump_entry/jump_takeoff/jump_apex/jump_land/jump_continues/
-  jump_box`.
+- **Source.** LAFAN1 (Ubisoft), the three GenoView `subject5` clips — **walk, run,
+  pushAndStumble** — retargeted to the G1 with **GMR** (General Motion Retargeting;
+  `data/g1_gmr_lafan1/*.pkl`, copied from `~/Projects/GMR`). GMR's `.pkl` (`root_pos`,
+  `root_rot` xyzw, `dof_pos`@29, 30 fps) maps straight to qpos (`data._gmr_to_qpos`); GMR
+  targets `g1_mocap_29dof.xml`, whose joint order is identical to our menagerie G1 (verified
+  by render). Retargeting is **kinematic only**, so playback is likewise kinematic.
+- **Trim.** Each clip uses **GenoView's exact per-clip window** (`config.CLIP_TRIM`, 60 fps
+  ranges halved: walk `[160:15518]`, run `[172:14136]`, pushAndStumble `[397:706]` →
+  `[198:353]`, the ~5 s in-place stumble event). Clips not listed fall back to a symmetric
+  `TRIM = 45` T-pose cut.
+- **Jump skill.** Three CAMDM `walk_jump_walk*` clips (`data/g1_jump/`, 30 fps CSV): short,
+  nearly straight `walk → jump → walk`. Phase-labeled (`_label_jump`); only these carry
+  `skill==1`, so locomotion (incl. running's natural flight) never matches into a jump.
+- **Library** (`data.build_library` → `config.LIB_PATH = motion_lib.npz`, 30712 frames).
+  Locomotion + jump clips concatenated, each added twice (normal + **L/R mirrored**,
+  GenoView-style, `g1_model.mirror_qpos`). Arrays: `qpos (N,36)`, `feet_world (N,2,3)` (FK),
+  `yaw`, `clip_id`, `frame_in_clip`, `lengths`, `clip_names`, `skill`, `phase`, and per-jump
+  `jump_entry/takeoff/apex/land/continues/box`.
+- **Format.** qpos = 36 floats: root `(x,y,z)` + quat (**wxyz** in qpos; the GMR pkl and CSV
+  store **xyzw**, reordered on load) + 29 joint angles in canonical Unitree order.
 
 ---
 
-## 3. Representation & kinematic backbone
+## 3. Representation & root
 
 - **State.** A frame is the 36-D `qpos`. Forward kinematics (MuJoCo `mj_kinematics`) gives
-  foot/body world positions for features and rendering.
-- **Root-motion stitching** (`kinematics.py`). A clip fragment is played under a fixed
-  planar **alignment** `A = (Δyaw, pivot, offset)`: `p' = R(Δyaw)(p − pivot) + offset`,
-  `q' = R_z(Δyaw) ⊗ q`. At a jump/transition, `A` is recomputed so the new frame coincides
-  with the current world pose → **C0-continuous** root path. Joint angles + root
-  orientation are cross-faded over `BLEND_FRAMES = 12`.
+  foot/body world positions for the features and rendering.
+- **Root.** The matcher does *not* stitch fragments by re-alignment; it carries a per-clip
+  Savitzky-Golay-smoothed **simulation root** (ground xy + facing) and integrates it from the
+  matched clip's smooth velocity (§4), placing the pelvis back as a local offset. So the
+  world path is continuous by construction.
 - **Post-process** (`cleanup.py`): Savitzky-Golay smoothing of root **xy** (window 9; z is
-  left untouched so jump peaks survive) → **foot-lock IK** (§7).
+  left untouched so jump peaks survive) → **foot-lock IK** (§8).
 
 ---
 
@@ -91,8 +70,7 @@ A faithful port of the GenoView ("Simple Motion Matching", Holden) real-time con
 
 - **Simulation root + DB** (`mm_features.py`). Per clip, a Savitzky-Golay-smoothed sim root
   (ground xy + heading; windows 15/31) is what the matcher tracks; the pelvis is a *local
-  offset* of it. The library is **L/R mirrored** (each clip added twice, `g1_model.mirror_qpos`)
-  → `data/motion_lib_loco_mirror.npz`. The MG keeps the un-mirrored lib.
+  offset* of it. The library is **L/R mirrored** (each clip added twice, `g1_model.mirror_qpos`).
 - **Feature vector** (27-D, in the sim-root frame, **per-block** standardized): foot
   positions (6) + foot & pelvis velocities (9) + future sim-root offset (6) and facing (6)
   at horizons `{10,20,30}` frames (= pose 15 + trajectory 12).
@@ -107,93 +85,10 @@ A faithful port of the GenoView ("Simple Motion Matching", Holden) real-time con
   (`VEL/ROT_HALFLIFE = 0.2 s`); the world root is integrated from the matched clip's smooth
   velocity (`rootPos += R(rootRot)·clipVelLocal·dt`, `rootYaw += yawRate·dt`).
 - **Jump** is triggered (not searched): inertialize into the best-matching `ready` run-up,
-  ride through landing. In the path experiments MM is *steered* (go-to-point heading) and
-  jumps when the box is ahead and within one jump's reach — reactive, no planner (so MG's A*
-  is what guarantees a box-anchored landing; MM is best-effort).
-
----
-
-## 5. Motion graph (`motion_graph.py`)
-
-- **Transition descriptor** (per frame, `config.MG_DESCRIPTOR`, default `"mm_pose"`):
-  - `"mm_pose"` — **MM's 15-D pose feature** (feet local pos/vel + root vel), z-scored. MG
-    edges then live in the *same* pose space MM matches on, so the two methods share one
-    representation. Low-dim ⇒ no PCA needed. *Trade-off:* it ignores arm/torso joint angles,
-    so edges have ~35 % larger upper-body joint discontinuity (mean 0.59 vs 0.43 rad L2,
-    p90 1.01 vs 0.66) than the joint descriptor — the 12-frame cross-fade absorbs it; path
-    quality (square, jumps) is unchanged.
-  - `"joint_pca"` — `[29 joint angles, joint velocities, root height, root planar velocity,
-    yaw rate]` (62-D), z-scored, **PCA-reduced to 16-D** (raw 62-D KDTree queries are
-    near-brute-force; 16-D build ≈ 4 s vs 174 s). Kovar-style full-body continuity.
-- **Edges.** For each (subsampled) source frame, the `n_neighbors` nearest descriptor
-  neighbours within an adaptive radius `τ = median(NN1)·2.5` become directed transition
-  edges (a good blend point); every frame also has its successor edge. Normal transition
-  **targets exclude jump frames** (`skill==1`) so locomotion never produces a jump.
-  Cached per `(library size, descriptor)`. Default `n_neighbors=16`; the loop/same-box and
-  path demos use `n_neighbors=28, tgt_stride=1` (denser ⇒ tighter turns).
-- **Descriptor & edge-density ablation** (`tools/descriptor_ablation.py`,
-  `tools/compare_descriptors.py`). Cut "pop" = joint-space L2 at a transition, upper body (12:):
-
-  | descriptor | all-edge up (mean/p90) | best cut/node | taken (greedy) |
-  |---|---|---|---|
-  | `joint_pca` (16-D) | 0.434 / 0.663 | 0.311 | 0.093 |
-  | `mm_pose` (15-D) | 0.588 / 1.010 | 0.378 | 0.109 |
-  | `mm_pose_vh` (17-D) | 0.578 / 0.982 | 0.372 | **0.099** |
-
-  - *Velocity+height helps the realized motion:* appending root height + yaw rate barely moves
-    the average edge but drops the **taken** cut 0.109→0.099 (≈ `joint_pca`'s 0.093) — turn-rate
-    continuity stops splicing opposite turns. It can't fix arms it never sees, so it doesn't
-    reach `joint_pca`.
-  - *More edges do **not** fix the pop:* `n_neighbors` 16→120 (mm_pose) grows edges 43k→460k;
-    the *best* cut/node improves (0.40→0.33, more choice) but the *average* edge worsens
-    (0.58→0.71) and the **taken** cut stays flat (~0.09–0.12) — greedy selects by velocity, not
-    continuity. More edges buy routing flexibility, not smoother blends; the descriptor (or
-    continuity-aware selection) is what matters.
-- **Greedy following** (`follow_command`/`follow_route`). State = (frame `i`, alignment
-  `A`). Every `SEARCH_INTERVAL` frames choose over `{continue} ∪ {transitions}`:
-  `cost(f) = ‖v_local(f) − w_local‖ + penalty(f)`, where `v_local(f)` is `f`'s **intrinsic**
-  average planar velocity (in its own local frame) and `w_local = R(−yaw)·want`. Scoring in
-  the *local* frame is what lets the graph steer (an early version aligned every candidate
-  to the current heading first, which made them all look "forward"). Reactive, 1 candidate.
-- **A\* planning** (`plan_to`) — the only multi-step optimizer. Finds a least-cost edge
-  sequence that **arrives at** a target `(xy, yaw, pose)`:
-  - node = `(frame, A, xy, yaw, t, g, parent)`; a macro-step plays `K` frames along
-    `{continue} ∪ {transitions}`; step cost `g += cmd_w·‖avg_vel − go-to-target_vel‖ +
-    transition_pen` (go-to-target velocity = `cruise·(target−xy)/‖·‖`, so wandering is dear).
-  - Best-first over a priority queue ordered by `f = g + h`, with the goal-distance
-    heuristic `h = w_pos·‖xy − target‖` pulling the frontier toward the target.
-  - A node within `reach` (0.7 m) of the target is a **goal**; its `g` then absorbs
-    `w_pos·‖xy−target‖ + w_yaw·|Δyaw| + w_pose·pose_dist(frame, terminal)`. First goal
-    popped (lowest `f`) wins. Backtrack the chain, replay with blends, ease onto terminal.
-  - *Ease mode (`ease_to_terminal`):* `"full"` eases joints+orientation+**position** to the
-    terminal — needed for jump run-ups (must arrive exactly to land on the box) and the
-    in-betweening task. But chaining path segments with `"full"` **foot-drifts at every
-    corner**: the last 0.7 s lerps the root to the exact corner decoupled from the footsteps,
-    so the body glides to the corner while a foot is airborne. Path corners use `"pose"`
-    (joints + orientation, but **keep the planned root position** — no position lerp): the
-    heading still pre-aligns to the next leg (so the planner navigates and corners stay tight,
-    6×6) while the body is not dragged. Corner-window root speed 1.16→0.60 m/s (max 1.83→1.33);
-    jumps still land (MG 0.00, MM 0.15 m). NB easing joints-only (dropping the heading ease
-    too) breaks navigation — MM then can't turn 90° from a standstill at the corner. Residual
-    slide is the inherent kinematic-playback skate that foot-lock (§7) absorbs.
-  - A discretized **closed set** `(frame, round(xy,0.1), round(yaw,0.1))` collapses revisits;
-    an expansion budget (20000) + horizon cap (`1.5·seconds`) guarantee termination.
-  - *Why the heuristic matters:* with `h=0`, A\* = Dijkstra and, given the graph's ~28
-    edges/node branching, burns its whole budget only halfway to the goal. The
-    `‖xy−target‖` heuristic makes it dive to the target and arrive in <0.2 s. (We switched
-    this planner from beam search to A\*; beam advanced a fixed-width front in lockstep depth
-    — robust without a heuristic, but not optimal and with no goal pull.)
-  - *Facing term:* the velocity cost is the straight-line chord (end−start)/dt and is blind
-    to a fragment spinning in place while drifting forward — A\*, being an optimizer, exploits
-    that and **moonwalks/pirouettes** (measured: 360° spins twice per leg, yaw-rate mean
-    124°/s). Adding `turn_w·|Δheading|` + `face_w·|heading − travel dir|` makes the body face
-    the way it walks (yaw-rate mean → 34°/s, spins gone) and keeps the square crisp.
-
-**MM vs MG.** Both walk reactively by default (NN vs greedy edge). The **A\* planner is
-shared** (`planner.py`): MG plans over its precomputed edges, MM over its feature-NN
-transitions (computed on the fly from the KD-tree). With it, *both* land the same-box double
-jump — so the capability is the planner, not the controller. The fixed-location "search over
-trigger time" used in the simpler jump tasks is a separate 1-D grid search, not A\*.
+  ride through landing. In the path experiments the matcher is *steered* (go-to-point heading)
+  and jumps when the box is ahead and within one jump's forward reach — reactive, no planner,
+  so the box jumps are best-effort (the apex lands on the box by triggering one jump-length
+  ahead).
 
 ---
 
@@ -214,9 +109,9 @@ trigger time" used in the simpler jump tasks is a separate 1-D grid search, not 
   `apex` = arg-max pelvis z over flight. `skill=1` over the whole `ready..after` span.
 
 - **Entry confined to `ready`.** `jumps.py:jump_entries` returns only frames with
-  `phase==ready` (and `continues==True`), mapping each to its `land`/`apex`. Both MM and MG
-  call `best_jump_entry(cur)` = the ready frame whose features/descriptor best match the
-  current frame (smooth take-off). **A jump can never be cut into mid-air.**
+  `phase==ready` (and `continues==True`), mapping each to its `land`/`apex`. The matcher's
+  `best_jump_entry(cur)` = the ready frame whose features best match the current frame (for a
+  smooth take-off). **A jump can never be cut into mid-air.**
 
 - **Exit confined to `after`.** A triggered jump is played as a **locked segment**
   `entry → after_end = land+1+PHASE_TOUCHDOWN+PHASE_AFTER` (no decisions inside), then
@@ -226,38 +121,6 @@ trigger time" used in the simpler jump tasks is a separate 1-D grid search, not 
 - **Why two mechanisms.** Entry confinement = restricting the candidate set
   (`best_jump_entry`). Exit confinement = (a) locked playback through `after` + (b)
   skill-based exclusion of jump frames from normal targets.
-
----
-
-## 7. World-anchored box jumps & the hard-constraint task
-
-- **Heuristic box** (`data.py:_heuristic_box`, per-jump `jump_box` half-extents). Centred
-  under the apex; forward half `hx=0.13`, lateral half `hy=0.28`; height = foot clearance
-  over its forward footprint × 0.92, clamped to `[0.13, 0.24]` half. The box is one the
-  jump provably clears (feet over the footprint stay above the top). The data jumps are low
-  hops, so boxes are low (~0.12–0.18 m tall).
-
-- **Anchoring.** With the jump nearly straight, apex ≈ entry + `fwd` (entry→apex forward,
-  ≈1.55 m). To land the apex on a box at `(bx,by)`, the character must reach the **entry
-  pose** at `(bx − fwd, by)` facing the jump direction; the pinned clip then carries
-  take-off/flight/landing.
-
-- **Jump on command / at fixed location** (`run_jump.py`, MM+MG). `task1`: walk 1 m/s,
-  enter a jump at a trigger. `task2`: a box is predefined at `(x,y)`; the trigger time is
-  chosen by a search minimizing the apex's 2-D distance to the box (≈0.1–0.2 m).
-
-- **HARD: same box twice with a loop** (`gen_loop_same_box`, MG). Reactive steering cannot
-  guarantee the precise return after a loop (single-clip greedy drifts ~0.85 m laterally,
-  invariant to waypoint/steer tuning). So **both jump approaches are A\*-planned
-  in-betweens**: `plan_to` navigates precisely to the `ready` entry pose at `(bx−fwd, by)`
-  facing +x; the loop between is greedy. Result: one box, both apexes within ~0.25 m
-  `(4.97, 0.24)` and `(4.99, 0.20)` of `(5,0)`. Segments are stitched in world coordinates
-  (`follow_route(init_align=…, return_state=…)`, `plan_to(start_frame=…)` + a placement
-  transform).
-
-This is the clean statement for a paper: *reactive control reaches the box approximately;
-graph planning (A\*) reaches the world-anchored keyframe exactly, so the same obstacle can
-be re-used.*
 
 ---
 
@@ -280,28 +143,13 @@ jumps < 0.1 m (vs a 4.06 m teleport before), sole slip 0.04–0.23 m/s.
 
 ---
 
-## 9. Visualization (`tools/visualize_graph.py`)
-
-Self-contained interactive HTML (Plotly): a 3-D animated G1 skeleton (fixed-scale box) +
-the full motion graph in 2-D pose space (PCA of the transition descriptor), nodes coloured
-by skill, jump-entry (`ready`) frames marked, `jump→walk` edges highlighted, and the
-traversal animated **in sync** with playback (passed edges bold, upcoming edges dotted,
-current node a marker). Rendered MP4s carry a HUD (clip name + frame index) and flash a
-border + banner on each non-consecutive (transition) frame.
-
----
-
 ## 10. Limitations
 
 - Kinematic playback (no dynamics); residual foot slip is inherent to the retargeted data.
-- Single walk clip ⇒ limited maneuverability: turn radius ~5 m, so a "square" loop is in
-  practice a rounded loop; reactive return drifts (hence A\* planning for precision).
+- LAFAN1 walk/run ⇒ ~5 m turn radius, so a "square" loop is in practice rounded.
 - Jump heights are low (data are small hops) ⇒ low boxes.
-- The same-box double jump is now shown with **both** MG and MM (both use the shared A\*
-  planner; MM plans over feature-NN transitions). Reactive MM — kept as a contrast — still
-  drifts on the 2nd jump (~0.8 m), which is the gap planning closes.
-- MM A\* is slower than MG A\* (no precomputed edges → a KD-tree query per expansion: ~9 s
-  for the whole exp2 path vs MG's <1 s), but still offline-fast.
+- Reactive, no planner: the matcher follows a steered command and can't be guaranteed to
+  re-acquire a fixed world point after a loop (the box jumps are best-effort).
 
 ---
 
@@ -310,16 +158,14 @@ border + banner on each non-consecutive (transition) frame.
 | name | value | where |
 |---|---|---|
 | FPS, DT | 30, 1/30 | global |
-| TRIM | 45 | clip T-pose trim |
-| TRAJ_HORIZONS | {10,20,30} | MM features |
-| MM_SEARCH_INTERVAL / jump_margin | 15 / 0.35 | MM |
-| SEARCH_INTERVAL | 10 | MG greedy |
-| BLEND_FRAMES | 12 | cross-fade |
-| SMOOTH_WINDOW | 9 | root de-jitter |
-| MG n_neighbors / tgt_stride | 16 / 2 (28 / 1 for loop) | graph build |
-| joint_pca dim / tau_factor | 16 / 2.5 | graph build |
-| plan_to K / reach / budget | 10 / 0.7 m / 20000 | A\* planning |
-| plan_to w_pos/w_yaw/w_pose/cmd_w | 1.5 / 0.4 / 0.15 / 0.4 | A\* cost+heuristic |
+| TRIM / CLIP_TRIM | 45 / GenoView windows | clip trim |
+| HORIZONS | {10,20,30} frames | features |
+| SEARCH_TIME / CURRENT_BIAS / APPROX_BIAS | 0.15 s / 0.01 / 0.01 | search |
+| INERT / VEL / ROT half-life | 0.075 / 0.2 / 0.2 s | spring + inertialization |
+| ROOT_POS/DIR_SMOOTH | 15 / 31 | sim-root savgol |
+| search-tail (per clip) | 30 frames | full-future guarantee |
+| MAX_SPEED / WALK_SCALE | 5 m/s / 0.4 | command speeds |
+| SMOOTH_WINDOW | 9 | root de-jitter (cleanup) |
 | PHASE_READY/TAKEOFF/TOUCHDOWN/AFTER | 12 / 10 / 6 / 18 | jump phases |
 | foot_thr | 0.13 m | flight detection |
 | box hx/hy | 0.13 / 0.28 m | box heuristic |
@@ -330,22 +176,20 @@ border + banner on each non-consecutive (transition) frame.
 
 ```
 motiongraph/
-  config.py         constants (skeleton, features, phases, paths)
-  g1_model.py       qpos<->csv, MuJoCo FK
-  data.py           library build; skill + 5-phase labels; box heuristic
-  kinematics.py     root stitching, blending, ease-to-terminal
-  features.py       MM feature vectors
-  commands.py       SpeedCommand -> predicted trajectory
-  jumps.py          jump entries confined to `ready` (+ land/apex maps)
-  motion_matching.py  feature DB + NN controller (+ jump_at, + A* hooks)
-  motion_graph.py   descriptor/edges, greedy follow_command/route, jump
-  planner.py        shared A* planner (astar_plan) used by both MG and MM
-  footlock.py       foot-lock IK (sole-sphere DLS)
-  cleanup.py        root de-jitter -> foot-lock
-  render.py         offline MuJoCo -> MP4 (HUD, transition flash, boxes)
-run_motion_matching.py / run_motion_graph.py   walk demos (task1/task2)
-run_jump.py          jump demos: mm/mg task1/2, raw, loop, samebox
-run_locomotion.py    multimodal MM demo: speed-driven walk -> run -> jump
+  config.py          constants (skeleton, jump phases, paths, MM settings)
+  g1_model.py        qpos<->csv/pkl, MuJoCo FK, sagittal mirror_qpos
+  data.py            library build (mirrored); skill + 5-phase labels; box heuristic
+  mm_features.py     GenoView feature DB (sim-root, per-block norm)
+  quat.py / springs.py   quaternion + spring/inertialization helpers
+  commands.py        SpeedCommand schedule -> (speed, heading)
+  jumps.py           jump entries confined to `ready` (+ land/apex maps)
+  motion_matching.py GenoView MotionMatcher: step(speed,heading) + generate()
+  footlock.py        foot-lock IK (sole-sphere DLS)
+  cleanup.py         root de-jitter -> foot-lock
+  render.py          offline MuJoCo -> MP4 (HUD, transition flash, boxes)
+run_locomotion.py    speed-driven walk -> run -> jump demo
+run_motion_matching.py   command-following locomotion demo
+run_experiments.py   square-path experiments (+ box jump)
+run_jump.py          jump demos: on command / at a searched location / raw
 tools/diagnose.py    quality metrics + plots
-tools/visualize_graph.py   interactive web graph
 ```
