@@ -106,31 +106,30 @@ forward reach</b> (so the apex lands on the box).</p>
 
 <h2>5 · Exact box-jump — a planned, repeatable sequence</h2>
 <p>Experiment&nbsp;2 is <i>reactive</i>: the jump is a locked clip played from wherever the steered
-walk arrives, so the apex lands ~0.1–0.2&nbsp;m off a <b>fixed</b> box. Here we make it
-<b>exact</b> — the apex lands on the box <b>every run</b> — without a graph planner. Two steps:
-<b>(1)</b> search the jump-trigger time so the apex lands <i>near</i> the box (as in the jump
-demo), then <b>(2)</b> apply a small <b>airborne root-warp</b>: a smooth bump over the
-ascent→apex→descent that nudges the apex onto the box exactly. The warp only touches frames
-where <b>both feet are off the ground</b> (so it adds no foot skating) and returns to zero by
-landing (so jumps stay independent — a whole <b>course</b> of boxes works with no drift).</p>
+walk arrives, so the apex lands ~0.1–0.2&nbsp;m off a fixed box. Here the apex lands on the box
+<b>exactly, every run</b> — and crucially <b>without distorting the jump</b>. (Apex&nbsp;x is a
+<i>step</i> function of the trigger time — the jump entry snaps to a discrete <code>ready</code>
+frame, so apex&nbsp;x jumps ~0.37&nbsp;m between adjacent triggers; forcing that residual through
+the short airborne arc would visibly stall the jump.) So we move the <b>geometry</b>, never the
+arc:</p>
 <div class="grid">
-  <div class="card"><h4><span class="tag">MM</span> single fixed box — apex warped onto it</h4>
+  <div class="card"><h4><span class="tag">MM</span> single fixed box — rigidly placed</h4>
     <video src="videos/exact_single_box.mp4" autoplay muted loop playsinline></video>
-    <p class="legend">The box is declared at a fixed <code>(x, y)</code>; the search lands the apex
-    within ~0.2&nbsp;m and the airborne warp closes the rest, so the apex sits <b>exactly</b> on the
-    box (green dot). Deterministic and repeatable — the "planned" feel of the old A* demo, but on
-    the reactive matcher.</p></div>
-  <div class="card"><h4><span class="tag">MM</span> course of three fixed boxes</h4>
+    <p class="legend">The box is declared at a fixed <code>(x, y)</code>. We pick the trigger whose
+    natural apex is nearest the box, then <b>rigidly translate the whole rollout</b> so the apex sits
+    exactly on it (green dot). A rigid shift changes no velocity or contact — the jump is the
+    untouched mocap, only repositioned; the robot's start moves by the sub-0.2&nbsp;m residual.</p></div>
+  <div class="card"><h4><span class="tag">MM</span> course — box baked to each apex</h4>
     <video src="videos/exact_course.mp4" autoplay muted loop playsinline></video>
-    <p class="legend">Boxes at <code>(3,0)</code>, <code>(6,0)</code>, <code>(9,0)</code>. The matcher
-    reactively triggers a jump as each box comes within one jump's reach, and each apex is warped
-    onto its own box. Because every warp is a <i>local</i> airborne bump, the three jumps stay
-    independent — all three apexes land exactly (0&nbsp;m error).</p></div>
+    <p class="legend">A run of three jumps (gently steered to hold the line). Each box is <b>locked to
+    its jump's natural apex</b> — the motion is baked into the object — so every apex lands exactly on
+    its box with no warp at all. Repeatable and deterministic.</p></div>
 </div>
-<div class="note">This is a <b>scheduled-trigger + motion-warp</b> sequence, not literal graph
-A*. A* needs a discrete transition graph to expand; the matcher is continuous and reactive, so a
-1-D trigger search plus a small exact warp is the right (and far lighter) tool. A real A* planner
-only earns its keep when there are branching <i>choices</i> to plan over (which box, which order).</div>
+<div class="note">This is <b>placement, not arc-warping</b>, and not literal graph A*. A* needs a
+discrete transition graph to expand; the matcher is continuous and reactive, so for "hit this fixed
+point" a rigid placement (single) or baking the box to the apex (course) is exact <i>and</i>
+artifact-free. A real A* planner only earns its keep when there are branching <i>choices</i> to plan
+over (which box, which order).</div>
 
 <h2>6 · Method</h2>
 <p>A faithful port of GenoView's <code>genoview_g1.py</code> (reference: <code>~/Projects/motionmatching-g1</code>),

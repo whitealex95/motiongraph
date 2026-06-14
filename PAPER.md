@@ -124,34 +124,35 @@ A faithful port of the GenoView ("Simple Motion Matching", Holden) real-time con
 
 ---
 
-## 7. Exact box-jump — scheduled trigger + airborne warp (`run_exact_box.py`)
+## 7. Exact box-jump — rigid placement / baked box (`run_exact_box.py`)
 
 The reactive box trigger (§Experiments) is *best-effort*: the locked jump segment plays from
-wherever the steered walk arrives, so the apex misses a **fixed** box by ~0.1–0.2 m. To make the
-apex land on a fixed box **exactly and repeatably** — the "planned sequence" feel of the `master`
-A\* demo, but on the reactive matcher — two steps:
+wherever the steered walk arrives, so the apex misses a **fixed** box by ~0.1–0.2 m. We make the
+apex land on the box **exactly and repeatably** — the "planned sequence" feel of the `master`
+A\* demo, but on the reactive matcher — **without distorting the jump**.
 
-1. **Trigger search.** Sweep the jump-trigger time (`np.linspace` over the run-up) and keep the
-   one whose realized apex x is closest to the target box (same idea as `run_jump.gen_task2`).
-   Residual after the search: ~0.1–0.2 m.
-2. **Airborne root-warp** (`_bump_warp`). Let `(t0,a,t1)` be the flight span (takeoff, apex,
-   land) and `d = box_xy − apex_xy`. Add a horizontal offset `d·w(t)` to the root, where `w`
-   ramps `0→1` over the ascent `[t0,a]` and `1→0` over the descent `[a,t1]` with a **smoothstep**.
-   So `w(a)=1` ⇒ apex shifts by exactly `d` (apex == box), while `w(t0)=w(t1)=0` ⇒ takeoff and
-   landing are untouched. The warp lives **entirely in the air** (both feet above the flight
-   threshold) ⇒ **no foot skating**, and is **local** (returns to the original line by landing)
-   ⇒ jumps are independent.
+**Why arc-warping fails.** Apex x is a *step* function of the trigger time: `best_jump_entry`
+snaps to a discrete `ready` frame, so apex x jumps ~0.37 m between adjacent triggers (a finer
+trigger search does **not** help — measured residual floor ~0.1–0.18 m). Pushing that residual
+through the ~14-frame airborne arc (e.g. a smoothstep root bump) visibly distorts horizontal
+velocity — forward speed dips to ~0.4 m/s at the top then lurches to ~3 m/s on the way down (the
+jump "stalls" at the apex). So we move the **geometry**, never the arc.
+
+1. **Single fixed box** (`gen_single`). Coarse-search the trigger whose natural apex is nearest
+   the box (only to keep the start near the origin), then **rigidly translate the entire rollout**
+   by `d = box_xy − apex_xy` (`_rigid_to`). A rigid shift preserves every velocity and foot
+   contact ⇒ **zero distortion**; the jump is the untouched mocap, just repositioned. Apex == box
+   exactly; the only visible effect is the robot's start moving by the sub-0.2 m residual.
+2. **Course** (`gen_course` + `_walk_jumps`). Walk the +x line (a gentle go-to-point heading,
+   aim 2 m ahead on `y=0`, holds it straight against reactive drift), trigger jumps at scheduled
+   times, segment the flights (`_flight_segments`), and **lock each box to its jump's natural
+   apex** ("motion baked into the object"). Exact by construction, again no warp. The trailing
+   walk after the last landing is trimmed.
 
 **Why not literal A\*.** A\* expands a discrete transition graph; the matcher is continuous and
 reactive with no such graph (building one = the `master` motion-graph planner). For "hit this
-fixed point," a 1-D trigger search + an exact local warp is correct and far lighter. A\* only
-earns its keep with branching choices (which box / what order).
-
-- **Single box** (`gen_single`): straight walk, one fixed box; search then warp ⇒ apex error 0.
-- **Course** (`gen_course` + `_walk_course`): a row of fixed boxes; reactively trigger each jump
-  (box-ahead-within-reach, re-armed after each box), segment the flights (`_flight_segments`),
-  match each apex to its nearest box in x, warp each independently ⇒ all apexes land exactly,
-  the inter-box walk untouched. Demos: `exact_single_box.mp4`, `exact_course.mp4`.
+fixed point," rigid placement / baking is exact *and* artifact-free. A\* only earns its keep with
+branching choices (which box / what order). Demos: `exact_single_box.mp4`, `exact_course.mp4`.
 
 ---
 
@@ -221,7 +222,7 @@ motiongraph/
 run_locomotion.py    speed-driven walk -> run -> jump demo
 run_motion_matching.py   command-following locomotion demo
 run_experiments.py   square-path experiments (+ reactive box jump)
-run_exact_box.py     exact box-jump: fixed single box + course, apex warped onto each box
+run_exact_box.py     exact box-jump: fixed single box (rigid placement) + course (box baked to apex)
 run_jump.py          jump demos: on command / at a searched location / raw
 tools/diagnose.py    quality metrics + plots
 ```
