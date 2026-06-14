@@ -78,11 +78,11 @@ def gen_mm(mm, jump=False, clean=True, speed=1.0, reach=1.2, max_seconds=80):
     if clean:
         out = cleanup(out)
     boxes = [_box_dict(mm)] if jump else None
-    return out, _corner_markers(), trace_labels(tframe, mm.lib), boxes
+    return out, _corner_markers(), trace_labels(tframe, mm.lib), boxes, mm.gizmo_trace
 
 
-def _render(out, mk, tr, bx, name):
-    render_qpos(out, f"{C.OUT_DIR}/{name}.mp4", markers_fn=mk, trace=tr, boxes=bx, **CAM)
+def _render(out, mk, tr, bx, gz, name):
+    render_qpos(out, f"{C.OUT_DIR}/{name}.mp4", markers_fn=mk, trace=tr, boxes=bx, gizmo=gz, **CAM)
 
 
 if __name__ == "__main__":

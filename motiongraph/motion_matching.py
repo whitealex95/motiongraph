@@ -79,6 +79,7 @@ class MotionMatcher:
         self.jump_locked = 0
         self.Tpos = np.tile(self.rootPos, (len(HORIZONS), 1))
         self.Tdir = np.tile(self.desiredDir, (len(HORIZONS), 1))
+        self.gizmo_trace = []    # per-step (Tpos, Tdir) command gizmo, for offline rendering
 
     # --- jump skill ----------------------------------------------------------
     def trigger_jump(self):
@@ -205,6 +206,10 @@ class MotionMatcher:
         qpos[0:3] = pelvWorldPos
         qpos[3:7] = pelvWorldRot
         qpos[7:] = dofOut
+
+        # Record the spring-predicted command trajectory (GenoView's DrawTrajectory gizmo)
+        # so the offline renderer can draw it, just like the real-time viewer.
+        self.gizmo_trace.append((self.Tpos.copy(), self.Tdir.copy()))
         return qpos
 
     def _runtime_features(self, qh_ctrl):

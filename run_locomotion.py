@@ -30,7 +30,7 @@ def main():
     out, tframe = mm.generate(CMD, SECONDS, start_frame=START, jump_at=JUMP_AT, return_trace=True)
     out = cleanup(out)
     render_qpos(out, f"{C.OUT_DIR}/loco_mm_walk_run_jump.mp4",
-                trace=trace_labels(tframe, lib), **CAM)
+                trace=trace_labels(tframe, lib), gizmo=mm.gizmo_trace, **CAM)
     # report the gait timeline
     names, clip = lib["clip_names"], lib["clip_id"][tframe]
     print("active clip over time:")

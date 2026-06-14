@@ -35,9 +35,9 @@ def gen_demo(mm=None, clean=True):
     trace = trace_labels(tframe, mm.lib)
     if clean:
         out = cleanup(out)                                # de-jitter root + foot-lock
-    return out, _cmd_marker(out, cmd), trace
+    return out, _cmd_marker(out, cmd), trace, mm.gizmo_trace
 
 
 if __name__ == "__main__":
-    out, mk, tr = gen_demo()
-    render_qpos(out, f"{C.OUT_DIR}/mm_demo_speed.mp4", markers_fn=mk, trace=tr)
+    out, mk, tr, gz = gen_demo()
+    render_qpos(out, f"{C.OUT_DIR}/mm_demo_speed.mp4", markers_fn=mk, trace=tr, gizmo=gz)

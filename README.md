@@ -68,7 +68,7 @@ motiongraph/
   jumps.py           pre-take-off run-up index for the jump trigger
   commands.py        speed/heading command schedule
   cleanup.py / footlock.py   root de-jitter + foot-lock IK
-  render.py          offline MuJoCo -> MP4
+  render.py          offline MuJoCo -> MP4 (+ GenoView command-trajectory gizmo)
 run_locomotion.py / run_motion_matching.py / run_experiments.py / run_jump.py
 tools/diagnose.py    quality metrics (teleport / jitter / skating)
 tools/make_web.py    compress demo videos -> docs/videos, refresh the site

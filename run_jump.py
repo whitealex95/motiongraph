@@ -126,7 +126,9 @@ if __name__ == "__main__":
         mm = MotionMatcher(lib)
         if which in ("task1", "all"):
             out, mk, tr, bx = gen_task1(mm)
-            render_qpos(out, f"{C.OUT_DIR}/jump_mm_task1_oncommand.mp4", markers_fn=mk, trace=tr, box=bx)
+            render_qpos(out, f"{C.OUT_DIR}/jump_mm_task1_oncommand.mp4", markers_fn=mk, trace=tr,
+                        box=bx, gizmo=mm.gizmo_trace)
         if which in ("task2", "all"):
             out, mk, tr, bx = gen_task2(mm)
-            render_qpos(out, f"{C.OUT_DIR}/jump_mm_task2_fixedloc.mp4", markers_fn=mk, trace=tr, box=bx)
+            render_qpos(out, f"{C.OUT_DIR}/jump_mm_task2_fixedloc.mp4", markers_fn=mk, trace=tr,
+                        box=bx, gizmo=mm.gizmo_trace)

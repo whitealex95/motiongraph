@@ -39,7 +39,9 @@
   authored blend trees. Below: the source data, a speed-driven walk·run·jump demo, two path experiments, and the
   method.</p>
   <p class="legend">All motion is kinematic playback of retargeted mocap fragments (no physics). Blue dots = path
-  corners; orange box = obstacle to jump over.</p>
+  corners; orange box = obstacle to jump over. <b style="color:#c0392b">Red spheres + sticks</b> = the
+  <b>command trajectory</b> the matcher is tracking (GenoView's gizmo: a spring-predicted future tap at
+  +10/+20/+30 frames, each with a facing stick) — this same signal is the search query.</p>
 </header>
 <main>
 
@@ -115,7 +117,9 @@ pelvis is stored as a <i>local offset</i> of it. The database is also <b>L/R mir
 offset (6) and facing (6) at {10,20,30} frames; normalized by a per-block std.</li>
 <li><b>Search:</b> every 0.15&nbsp;s, query = <code>[current pose | desired trajectory]</code>; nearest neighbour over
 <b>per-clip KD-trees</b> (each clip's last 30 frames trimmed from the search so a full future always exists), biased
-toward staying in the current clip. Jump frames are excluded — a jump happens only on a trigger.</li>
+toward staying in the current clip. Jump frames are excluded — a jump happens only on a trigger. The desired
+trajectory half of that query is exactly the <b style="color:#c0392b">red gizmo</b> drawn in every clip above
+(GenoView's <code>DrawTrajectory</code>): you see what the matcher is searching for.</li>
 <li><b>Transitions = inertialization:</b> on a switch the pose discontinuity (joints + pelvis-local pos/rot and their
 velocities) is captured as a <b>decaying-spring offset</b> and bled to zero over ~0.075&nbsp;s — no cross-fade,
 momentum preserved. The desired trajectory is predicted with <b>critically-damped springs</b>; the world root is

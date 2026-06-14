@@ -17,6 +17,14 @@ from . import config as C
 _FONT = next(iter(glob.glob("/usr/share/fonts/**/DejaVuSansMono-Bold.ttf", recursive=True)), None)
 _FADE = 14   # frames a transition banner/border stays lit
 
+# GenoView command-trajectory gizmo (DrawTrajectory): a red sphere at each spring-predicted
+# future tap, with a short stick along its facing. Same constants as the real-time viewer.
+_GIZMO_RGBA = np.array([0.9, 0.1, 0.1, 1.0], np.float32)
+_GIZMO_Z = 0.05          # draw the ground gizmo just above the floor
+_GIZMO_SPHERE_R = 0.05   # GenoView DrawSphere radius
+_GIZMO_STICK_LEN = 0.25  # GenoView facing-stick length
+_GIZMO_STICK_W = 0.012   # facing-stick radius
+
 
 def _font(sz):
     try:
@@ -84,13 +92,15 @@ def _overlay(img, label, flash, tinfo, t, fps):
 
 
 def render_qpos(qpos_seq, out_path, markers_fn=None, trace=None, box=None, boxes=None,
-                fps=C.FPS, width=1280, height=720, cam_dist=3.5, cam_elev=-18, cam_azim=120,
-                cam_fixed=None):
+                gizmo=None, fps=C.FPS, width=1280, height=720, cam_dist=3.5, cam_elev=-18,
+                cam_azim=120, cam_fixed=None):
     """Render frames with a root-tracking camera (or a fixed camera when cam_fixed is set).
 
     markers_fn(frame_idx) -> [(world_pos, size, rgba)] spheres to overlay.
     trace: optional list of trace_labels() dicts (len == frames) for the HUD/flash.
     box / boxes: a static box dict(pos, half, rgba=, label=) -- or a list of them.
+    gizmo: optional per-frame command trajectory [(Tpos (H,3), Tdir (H,3)), ...] (e.g. the
+        matcher's `gizmo_trace`); drawn GenoView-style as red future-tap spheres + facing sticks.
     cam_fixed: (cx, cy, cz) look-at for a stationary wide camera (e.g. a whole path).
     """
     boxlist = (boxes or []) + ([box] if box else [])
@@ -115,6 +125,8 @@ def render_qpos(qpos_seq, out_path, markers_fn=None, trace=None, box=None, boxes
         if markers_fn is not None:
             for pos, size, rgba in markers_fn(t):
                 _add_sphere(renderer.scene, pos, size, rgba)
+        if gizmo is not None:                             # GenoView command-trajectory gizmo
+            _add_command_gizmo(renderer.scene, *gizmo[min(t, len(gizmo) - 1)])
         img = renderer.render()
         if trace is not None:
             img = _overlay(img, trace[min(t, len(trace) - 1)], flash[t], info[t], t, fps)
@@ -157,3 +169,25 @@ def _add_sphere(scene, pos, size, rgba):
                         np.array([size, size, size]), np.asarray(pos, np.float64),
                         np.eye(3).ravel(), np.asarray(rgba, np.float32))
     scene.ngeom += 1
+
+
+def _add_connector(scene, p0, p1, width, rgba):
+    """A thin capsule from p0 to p1 (mjv_connector), e.g. a gizmo facing stick."""
+    if scene.ngeom >= scene.maxgeom:
+        return
+    g = scene.geoms[scene.ngeom]
+    mujoco.mjv_initGeom(g, mujoco.mjtGeom.mjGEOM_CAPSULE, np.zeros(3), np.zeros(3),
+                        np.eye(3).ravel(), np.asarray(rgba, np.float32))
+    mujoco.mjv_connector(g, mujoco.mjtGeom.mjGEOM_CAPSULE, width,
+                         np.asarray(p0, np.float64), np.asarray(p1, np.float64))
+    scene.ngeom += 1
+
+
+def _add_command_gizmo(scene, Tpos, Tdir):
+    """GenoView DrawTrajectory: a red sphere at each predicted future tap with a short stick
+    along its facing direction (the command trajectory the matcher is tracking)."""
+    for (px, py, _), (dx, dy, _) in zip(np.asarray(Tpos), np.asarray(Tdir)):
+        base = np.array([px, py, _GIZMO_Z])
+        _add_sphere(scene, base, _GIZMO_SPHERE_R, _GIZMO_RGBA)
+        _add_connector(scene, base, base + _GIZMO_STICK_LEN * np.array([dx, dy, 0.0]),
+                       _GIZMO_STICK_W, _GIZMO_RGBA)

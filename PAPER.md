@@ -186,7 +186,7 @@ motiongraph/
   motion_matching.py GenoView MotionMatcher: step(speed,heading) + generate()
   footlock.py        foot-lock IK (sole-sphere DLS)
   cleanup.py         root de-jitter -> foot-lock
-  render.py          offline MuJoCo -> MP4 (HUD, transition flash, boxes)
+  render.py          offline MuJoCo -> MP4 (HUD, transition flash, boxes, GenoView command gizmo)
 run_locomotion.py    speed-driven walk -> run -> jump demo
 run_motion_matching.py   command-following locomotion demo
 run_experiments.py   square-path experiments (+ box jump)
