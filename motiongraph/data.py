@@ -1,6 +1,5 @@
 """Build / load the unified G1 motion library from the LAFAN1 CSVs."""
 import os
-import glob
 import numpy as np
 
 from . import config as C

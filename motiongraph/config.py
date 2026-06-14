@@ -26,12 +26,11 @@ PHASE_TAKEOFF = 10     # push-off / loading on the ground, just before lift-off
 PHASE_TOUCHDOWN = 6    # landing impact (just after the feet hit)
 PHASE_AFTER = 18       # landing absorption / recovery walk (the only place to exit)
 
-# CSV / qpos layout. Dataset row = [pos(3), quat_xyzw(4), joints(29)] = 36.
-# MuJoCo free-joint qpos = [pos(3), quat_wxyz(4), joints(29)] = 36 (same joint order).
-NQ = 36
-NJ = 29
-ROOT_POS = slice(0, 3)
-QUAT_XYZW = slice(3, 7)   # dataset order
+# qpos layout (36-D), shared by the dataset and MuJoCo (same joint order):
+#   [0:3]  root position (x, y, z) in world metres
+#   [3:7]  root orientation quaternion -- DATASET stores xyzw, MuJoCo qpos stores wxyz
+#          (csv_to_qpos / transform_qpos do the reorder; see g1_model.py)
+#   [7:36] 29 joint angles (radians)
 JOINTS = slice(7, 36)
 
 # Foot bodies used for motion-matching pose features (names from menagerie g1.xml).

@@ -37,7 +37,8 @@ class MotionMatcher:
         return float(np.linalg.norm(self.qpos[a, C.JOINTS] - self.qpos[b, C.JOINTS]))
 
     def _play(self, frame, count, align):
-        """Play `count` frames from `frame` (clamped to clip end), placed by `align`."""
+        """Play `count` frames from `frame` (clamped to clip end) under planar `align`.
+        Returns (placed qpos, end xy, end heading=lib yaw+dyaw, last frame) in align's frame."""
         dyaw, pivot, offset = align
         end = min(frame + count, frame + (self.lengths[self.clip_id[frame]] - 1 - self.fic[frame]) + 1)
         idx = np.arange(frame, max(end, frame + 1))
@@ -94,13 +95,14 @@ class MotionMatcher:
         """
         n = int(seconds * C.FPS)
         cur = start_frame
-        dyaw, pivot, offset = -self.yaw[cur], self.xy[cur].copy(), np.zeros(2)  # start at origin, +x
+        # planar alignment (dyaw,pivot,offset): start the character at world origin facing +x
+        dyaw, pivot, offset = -self.yaw[cur], self.xy[cur].copy(), np.zeros(2)
         out, frozen, blend_left, tframe = [], None, 0, []
         locked, did = 0, False
         for step in range(n):
             t = step * C.DT
             world = transform_qpos(self.qpos[cur], dyaw, pivot, offset)[0]
-            cwx, cwy = world[0:2].copy(), self.yaw[cur] + dyaw
+            cwx, cwy = world[0:2].copy(), self.yaw[cur] + dyaw   # current world xy + heading (rad)
             if blend_left > 0:
                 world = blend_qpos(frozen, world, 1 - blend_left / C.BLEND_FRAMES)
                 blend_left -= 1
@@ -156,7 +158,7 @@ class MotionMatcher:
         step = 0
         while step < n and wp < len(waypoints):
             world = transform_qpos(self.qpos[cur], dyaw, pivot, offset)[0]
-            cwx, cwy = world[0:2].copy(), self.yaw[cur] + dyaw
+            cwx, cwy = world[0:2].copy(), self.yaw[cur] + dyaw   # current world xy + heading (rad)
             if blend_left > 0:
                 world = blend_qpos(frozen, world, 1 - blend_left / C.BLEND_FRAMES)
                 blend_left -= 1
@@ -169,9 +171,9 @@ class MotionMatcher:
                 step += 1
                 continue
             if box is not None:                              # jump over the box on a +x crossing
-                d = np.asarray(box, float) - cwx
-                heading = np.array([np.cos(cwy), np.sin(cwy)])
-                aligned = abs(((np.arctan2(d[1], d[0]) - cwy + np.pi) % (2 * np.pi)) - np.pi) < 0.5
+                d = np.asarray(box, float) - cwx             # world vector from character to box
+                heading = np.array([np.cos(cwy), np.sin(cwy)])   # world facing unit vector
+                aligned = abs(((np.arctan2(d[1], d[0]) - cwy + np.pi) % (2 * np.pi)) - np.pi) < 0.5  # box ahead?
                 je = self.best_jump_entry(cur)
                 fwd = float(self.qpos[self.jump_apex_of[je[0]], 0] - self.qpos[je[0], 0]) if je else 0
                 if cwx[0] < 1.0:

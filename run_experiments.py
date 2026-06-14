@@ -22,7 +22,6 @@ from motiongraph.motion_matching import MotionMatcher
 from motiongraph.cleanup import cleanup
 from motiongraph.render import render_qpos, trace_labels
 from motiongraph.kinematics import transform_qpos, alignment_to, rotz
-from motiongraph.g1_model import quat_wxyz_yaw
 from run_jump import _plan_jump, _rz, _yaw, START
 
 CMD = SpeedCommand([(0.0, 1.0, 0.0)])
@@ -51,13 +50,14 @@ def _box_dict(g):
 # Both controllers expose plan_to (shared A* in planner.py): MG plans over graph edges,
 # MM over its feature-NN transitions. So one planned generator drives both.
 def _plan_walk(ctrl, F, cxy, cyaw, txy, tyaw, sec=8.0):
-    rel = rotz(-cyaw) @ (np.asarray(txy, float) - cxy)
+    # world corner (txy,tyaw) -> the planner's local frame (current pose cxy,cyaw at origin):
+    rel = rotz(-cyaw) @ (np.asarray(txy, float) - cxy)          # target xy in plan-local frame
     # ease="pose": pose-continuous hand-off WITHOUT dragging the root to the corner, so the
     # path rounds corners naturally instead of foot-skating to each exact corner point.
     loc = ctrl.plan_to(CMD, sec, int(F), rel, float(tyaw - cyaw), int(F), ease="pose")
-    dy, pv, of = alignment_to(loc[0, :2], _yaw(loc[0]), cxy, cyaw)
+    dy, pv, of = alignment_to(loc[0, :2], _yaw(loc[0]), cxy, cyaw)   # re-anchor plan back into world
     seg = transform_qpos(loc, dy, pv, of)
-    return seg, int(F), seg[-1, :2], _yaw(seg[-1])
+    return seg, int(F), seg[-1, :2], _yaw(seg[-1])               # next start: end world xy + heading
 
 
 def gen_planned(ctrl, jump=False, clean=True):

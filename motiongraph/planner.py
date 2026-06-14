@@ -44,6 +44,9 @@ def astar_plan(s, command, seconds, start_frame, target_xy, target_yaw, term_fra
     Nmax = int(seconds * C.FPS * 1.5)                   # horizon cap (target should arrive first)
     target_xy = np.asarray(target_xy, float)
 
+    # All xy/yaw below are in the PLAN-LOCAL frame: a0 places start_frame at the origin
+    # facing +x, so target_xy/target_yaw are given relative to that. The caller re-anchors
+    # the returned motion into the world with alignment_to (see run_experiments._plan_walk).
     def want_vel(xy):                                   # go-to-point: cruise toward the target
         d = target_xy - xy
         n = np.linalg.norm(d)
@@ -53,7 +56,7 @@ def astar_plan(s, command, seconds, start_frame, target_xy, target_yaw, term_fra
         return (w_pos * float(np.linalg.norm(xy - target_xy))
                 + w_yaw * abs(angdiff(yaw, target_yaw)) + w_pose * s._pose_dist(frame, term_frame))
 
-    # node = [cur, align, xy, yaw, t, g, parent, start_frame, is_transition]
+    # node = [cur, align, xy, yaw, t, g, parent, start_frame, is_transition]; xy,yaw plan-local
     a0 = (-s.yaw[start_frame], s.xy[start_frame].copy(), np.zeros(2))
     x0 = transform_qpos(s.qpos[start_frame], *a0)[0]
     nodes = [[start_frame, a0, x0[:2], s.yaw[start_frame] + a0[0], 0, 0.0, -1, start_frame, False]]
@@ -71,9 +74,9 @@ def astar_plan(s, command, seconds, start_frame, target_xy, target_yaw, term_fra
             continue
         seen.add(key); used += 1
         for start, al, is_tr, pen in s._options(cur, xy, yaw, align):
-            world, exy, eyaw, last = s._play(start, K, al)
+            world, exy, eyaw, last = s._play(start, K, al)    # exy,eyaw = segment end pose (plan-local)
             te = t + len(world)
-            avgv = (exy - world[0, :2]) / (max(len(world), 1) * C.DT)
+            avgv = (exy - world[0, :2]) / (max(len(world), 1) * C.DT)   # segment planar velocity
             ng = g + cmd_w * float(np.linalg.norm(avgv - want_vel(world[0, :2]))) + pen
             ng += turn_w * abs(angdiff(eyaw, yaw))                 # discourage spinning
             if float(np.linalg.norm(avgv)) > 0.3:                 # face the way you travel

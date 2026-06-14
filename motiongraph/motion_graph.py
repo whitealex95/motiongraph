@@ -28,14 +28,14 @@ def _descriptors(lib):
     yr = np.zeros(N, np.float32)
     for cid in np.unique(lib["clip_id"]):
         idx = np.where(lib["clip_id"] == cid)[0]
-        a, b = idx[0], idx[-1]
+        b = idx[-1]                                        # clip end; clamp velocity at the last frame
         nxt = np.minimum(idx + 1, b)
         qd[idx] = (q[nxt] - q[idx]) / C.DT
-        c, s = np.cos(-yaw[idx]), np.sin(-yaw[idx])
-        d = (qpos[nxt, 0:2] - qpos[idx, 0:2]) / C.DT
-        rv[idx, 0] = c * d[:, 0] - s * d[:, 1]
-        rv[idx, 1] = s * d[:, 0] + c * d[:, 1]
-        yr[idx] = ((yaw[nxt] - yaw[idx] + np.pi) % (2 * np.pi) - np.pi) / C.DT
+        c, s = np.cos(-yaw[idx]), np.sin(-yaw[idx])        # Rz(-yaw): world -> root-local
+        d = (qpos[nxt, 0:2] - qpos[idx, 0:2]) / C.DT       # world root planar velocity
+        rv[idx, 0] = c * d[:, 0] - s * d[:, 1]             # -> root-local (forward, lateral),
+        rv[idx, 1] = s * d[:, 0] + c * d[:, 1]             #    so the descriptor is heading-invariant
+        yr[idx] = ((yaw[nxt] - yaw[idx] + np.pi) % (2 * np.pi) - np.pi) / C.DT   # yaw rate (rad/s)
     desc = np.concatenate([q, 0.15 * qd, qpos[:, 2:3], rv, yr[:, None]], 1).astype(np.float32)
     return (desc - desc.mean(0)) / (desc.std(0) + 1e-6)
 
@@ -76,7 +76,7 @@ def mg_descriptor(lib, mode):
 
 
 class MotionGraph:
-    def __init__(self, lib, n_neighbors=16, src_stride=2, tgt_stride=2, pca_dim=16,
+    def __init__(self, lib, n_neighbors=16, src_stride=2, tgt_stride=2,
                  tau_factor=2.5, min_z=0.6, cache=True, desc_mode=None):
         self.lib = lib
         self.qpos, self.yaw = lib["qpos"], lib["yaw"]
@@ -143,10 +143,6 @@ class MotionGraph:
         from .jumps import jump_entries
         self.jump_enter, self.jump_land_of, self.jump_apex_of = jump_entries(self.lib)
 
-    def top_skill_edges(self, k=5):
-        """Top-k (best-blend) transition edges for each skill pair, e.g. walk->jump."""
-        return {C.SKILLS[a] + "->" + C.SKILLS[b]: v[:k] for (a, b), v in self.skill_edges.items()}
-
     def best_jump_entry(self, cur):
         """Enterable jump run-up frame whose pose best matches `cur` (-> smooth take-off).
         Returns (entry_frame, land_frame) or None if no jumps in the library."""
@@ -197,12 +193,15 @@ class MotionGraph:
         (library_frame, took_transition) so the graph traversal can be visualized."""
         n = int(seconds * C.FPS)
         cur = start_frame
-        align = (-self.yaw[cur], self.xy[cur].copy(), np.zeros(2))   # start at origin, +x
+        # align = (dyaw, pivot, offset): dyaw=-yaw cancels the start heading, offset=0 ->
+        # the character starts at world origin facing +x. align stays fixed while replaying
+        # contiguous frames; it is recomputed only at a transition to keep the world path C0.
+        align = (-self.yaw[cur], self.xy[cur].copy(), np.zeros(2))
         out, frozen, blend_left, step = [], None, 0, 0
         trace_frame, trace_jump = [], []
         while step < n:
             world = transform_qpos(self.qpos[cur], *align)[0]
-            cwx, cwy = world[0:2].copy(), self.yaw[cur] + align[0]
+            cwx, cwy = world[0:2].copy(), self.yaw[cur] + align[0]   # current world xy + heading(rad)
             if blend_left > 0:
                 world = blend_qpos(frozen, world, 1 - blend_left / C.BLEND_FRAMES)
                 blend_left -= 1
@@ -264,7 +263,7 @@ class MotionGraph:
         tframe, tphase = [], []                                  # phase: 0 walk, 1 jump
         while step < n:
             world = transform_qpos(self.qpos[cur], *align)[0]
-            cwx, cwy = world[0:2].copy(), self.yaw[cur] + align[0]
+            cwx, cwy = world[0:2].copy(), self.yaw[cur] + align[0]   # current world xy + heading (rad)
             if blend_left > 0:
                 world = blend_qpos(frozen, world, 1 - blend_left / C.BLEND_FRAMES)
                 blend_left -= 1
@@ -326,7 +325,7 @@ class MotionGraph:
         prev_wp = transform_qpos(self.qpos[cur], *align)[0][:2]   # previous waypoint = start pos
         while step < n and wp < len(waypoints):
             world = transform_qpos(self.qpos[cur], *align)[0]
-            cwx, cwy = world[0:2].copy(), self.yaw[cur] + align[0]
+            cwx, cwy = world[0:2].copy(), self.yaw[cur] + align[0]   # current world xy + heading (rad)
             if blend_left > 0:
                 world = blend_qpos(frozen, world, 1 - blend_left / C.BLEND_FRAMES)
                 blend_left -= 1

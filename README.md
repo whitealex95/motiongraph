@@ -252,8 +252,8 @@ algorithms get a jump task — `run_jump.py both` renders four clips
 feature search; at the trigger it matches `best_jump_entry` (the pre-take-off run-up whose
 features best match the current frame) and rides the clip through landing. **Motion graph**
 (`MotionGraph.follow_with_jump`): walks by greedy edge selection and enters the jump the
-same way. (The graph also tags every edge `(skill_from → skill_to)`; `top_skill_edges(k)`
-returns the best per pair, e.g. **top-5 walk→jump**.)
+same way. (The graph also tags every edge by `(skill_from → skill_to)` in
+`MotionGraph.skill_edges`, sorted best-blend first per pair, e.g. **walk→jump**.)
 
 **task1 — jump on command.** Walk forward at 1 m/s; at the trigger time enter the jump
 run-up and ride the straight walk→jump→walk clip through landing, then keep walking. The

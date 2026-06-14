@@ -296,7 +296,7 @@ border + banner on each non-consecutive (transition) frame.
 | BLEND_FRAMES | 12 | cross-fade |
 | SMOOTH_WINDOW | 9 | root de-jitter |
 | MG n_neighbors / tgt_stride | 16 / 2 (28 / 1 for loop) | graph build |
-| pca_dim / tau_factor | 16 / 2.5 | graph build |
+| joint_pca dim / tau_factor | 16 / 2.5 | graph build |
 | plan_to K / reach / budget | 10 / 0.7 m / 20000 | A\* planning |
 | plan_to w_pos/w_yaw/w_pose/cmd_w | 1.5 / 0.4 / 0.15 / 0.4 | A\* cost+heuristic |
 | PHASE_READY/TAKEOFF/TOUCHDOWN/AFTER | 12 / 10 / 6 / 18 | jump phases |

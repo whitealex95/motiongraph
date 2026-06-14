@@ -7,8 +7,6 @@ transitions in during `ready` and then rides take-off / flight / landing.
 """
 import numpy as np
 
-from . import config as C
-
 READY = 1   # phase code (see config.JUMP_PHASES)
 
 

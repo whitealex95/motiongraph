@@ -15,17 +15,21 @@ def rotz(yaw):
 
 
 def transform_qpos(qpos, dyaw, pivot, offset):
-    """Apply planar alignment T(p)=Rz(dyaw)(p-pivot)+offset to qpos rows (..,36)."""
+    """Place library qpos rows (..,36) into the WORLD via a planar (SE2) alignment:
+    root_xy <- Rz(dyaw)*(root_xy - pivot) + offset, and the heading is pre-rotated by dyaw
+    about world-Z. Root z and the 29 joint angles are unchanged. pivot/offset are world xy."""
     q = np.atleast_2d(qpos).astype(np.float64).copy()
-    q[:, 0:2] = (rotz(dyaw) @ (q[:, 0:2] - pivot).T).T + offset
-    xyzw = q[:, [4, 5, 6, 3]]                                   # wxyz -> xyzw
-    rot = R.from_euler("z", dyaw) * R.from_quat(xyzw)
-    q[:, 3:7] = rot.as_quat()[:, [3, 0, 1, 2]]                  # xyzw -> wxyz
+    q[:, 0:2] = (rotz(dyaw) @ (q[:, 0:2] - pivot).T).T + offset   # root xy: planar move in world
+    xyzw = q[:, [4, 5, 6, 3]]                                     # qpos quat wxyz -> scipy xyzw
+    rot = R.from_euler("z", dyaw) * R.from_quat(xyzw)             # rotate heading by dyaw (world Z)
+    q[:, 3:7] = rot.as_quat()[:, [3, 0, 1, 2]]                    # scipy xyzw -> qpos wxyz
     return q
 
 
 def alignment_to(lib_xy, lib_yaw, world_xy, world_yaw):
-    """(dyaw, pivot, offset) mapping a library planar pose onto a target world pose."""
+    """Planar alignment (dyaw, pivot, offset) for transform_qpos that lands a library frame
+    exactly at a target world pose: dyaw = world_yaw - lib_yaw (heading delta), pivot = the
+    library frame's xy (rotate about it), offset = target world xy. xy in metres, yaw in rad."""
     return world_yaw - lib_yaw, np.asarray(lib_xy, float), np.asarray(world_xy, float)
 
 
