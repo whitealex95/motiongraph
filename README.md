@@ -19,7 +19,8 @@ conda activate deploy_mujoco            # MUJOCO_GL=glfw, DISPLAY=:0 for offscre
 
 python run_locomotion.py                # speed-driven walk -> run -> jump (the headline demo)
 python run_motion_matching.py           # command-following locomotion
-python run_experiments.py               # square-path experiments (+ box jump)
+python run_experiments.py               # square-path experiments (+ reactive box jump)
+python run_exact_box.py                 # exact box-jump: fixed single box + multi-box course
 python run_jump.py                      # jump-on-command / jump-at-a-searched-location / raw
 ```
 
@@ -69,7 +70,7 @@ motiongraph/
   commands.py        speed/heading command schedule
   cleanup.py / footlock.py   root de-jitter + foot-lock IK
   render.py          offline MuJoCo -> MP4 (+ GenoView command-trajectory gizmo)
-run_locomotion.py / run_motion_matching.py / run_experiments.py / run_jump.py
+run_locomotion.py / run_motion_matching.py / run_experiments.py / run_exact_box.py / run_jump.py
 tools/diagnose.py    quality metrics (teleport / jitter / skating)
 tools/make_web.py    compress demo videos -> docs/videos, refresh the site
 ```

@@ -36,8 +36,8 @@
   <p class="mut">A faithful port of <a href="https://github.com/orangeduck/GenoViewPython" target="_blank">GenoView</a>'s
   ("Simple Motion Matching", Holden) controller, driving the G1 humanoid over GMR-retargeted LAFAN1 walk/run/stumble
   clips plus a phase-segmented jump skill. Reactive nearest-neighbour search — no neural network, no planner, no
-  authored blend trees. Below: the source data, a speed-driven walk·run·jump demo, two path experiments, and the
-  method.</p>
+  authored blend trees. Below: the source data, a speed-driven walk·run·jump demo, two path experiments, an
+  exact (planned) box-jump, and the method.</p>
   <p class="legend">All motion is kinematic playback of retargeted mocap fragments (no physics). Blue dots = path
   corners; orange box = obstacle to jump over. <b style="color:#c0392b">Red spheres + sticks</b> = the
   <b>command trajectory</b> the matcher is tracking (GenoView's gizmo: a spring-predicted future tap at
@@ -104,7 +104,35 @@ forward reach</b> (so the apex lands on the box).</p>
     follows, it doesn't plan to a fixed point.</p></div>
 </div>
 
-<h2>5 · Method</h2>
+<h2>5 · Exact box-jump — a planned, repeatable sequence</h2>
+<p>Experiment&nbsp;2 is <i>reactive</i>: the jump is a locked clip played from wherever the steered
+walk arrives, so the apex lands ~0.1–0.2&nbsp;m off a <b>fixed</b> box. Here we make it
+<b>exact</b> — the apex lands on the box <b>every run</b> — without a graph planner. Two steps:
+<b>(1)</b> search the jump-trigger time so the apex lands <i>near</i> the box (as in the jump
+demo), then <b>(2)</b> apply a small <b>airborne root-warp</b>: a smooth bump over the
+ascent→apex→descent that nudges the apex onto the box exactly. The warp only touches frames
+where <b>both feet are off the ground</b> (so it adds no foot skating) and returns to zero by
+landing (so jumps stay independent — a whole <b>course</b> of boxes works with no drift).</p>
+<div class="grid">
+  <div class="card"><h4><span class="tag">MM</span> single fixed box — apex warped onto it</h4>
+    <video src="videos/exact_single_box.mp4" autoplay muted loop playsinline></video>
+    <p class="legend">The box is declared at a fixed <code>(x, y)</code>; the search lands the apex
+    within ~0.2&nbsp;m and the airborne warp closes the rest, so the apex sits <b>exactly</b> on the
+    box (green dot). Deterministic and repeatable — the "planned" feel of the old A* demo, but on
+    the reactive matcher.</p></div>
+  <div class="card"><h4><span class="tag">MM</span> course of three fixed boxes</h4>
+    <video src="videos/exact_course.mp4" autoplay muted loop playsinline></video>
+    <p class="legend">Boxes at <code>(3,0)</code>, <code>(6,0)</code>, <code>(9,0)</code>. The matcher
+    reactively triggers a jump as each box comes within one jump's reach, and each apex is warped
+    onto its own box. Because every warp is a <i>local</i> airborne bump, the three jumps stay
+    independent — all three apexes land exactly (0&nbsp;m error).</p></div>
+</div>
+<div class="note">This is a <b>scheduled-trigger + motion-warp</b> sequence, not literal graph
+A*. A* needs a discrete transition graph to expand; the matcher is continuous and reactive, so a
+1-D trigger search plus a small exact warp is the right (and far lighter) tool. A real A* planner
+only earns its keep when there are branching <i>choices</i> to plan over (which box, which order).</div>
+
+<h2>6 · Method</h2>
 <p>A faithful port of GenoView's <code>genoview_g1.py</code> (reference: <code>~/Projects/motionmatching-g1</code>),
 real-time and reactive (<code>step(speed, heading)</code> each frame; an offline <code>generate()</code> wraps it for
 rendering).</p>
@@ -159,7 +187,7 @@ then foot-lock IK pins the two lowest sole spheres during steady stance (damped 
 
 <p class="mut" style="margin-top:40px">Generated from the <code>motiongraph</code> repo (<code>mm-only</code> branch).
 Full methods reference: <code>PAPER.md</code>; reproduce with <code>run_experiments.py</code> /
-<code>run_locomotion.py</code>.</p>
+<code>run_exact_box.py</code> / <code>run_locomotion.py</code>.</p>
 </main>
 </body>
 </html>
